@@ -297,43 +297,51 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
             markersRef.current.push(marker);
           });
           
-          // Draw route polylines
+          // Draw route polylines using decoded geometry
           routes.forEach((route, routeIndex) => {
-            if (route.steps && route.steps.length > 1) {
-              try {
-                const routeColor = SKILL_COLORS[(routeIndex % 4) + 1]?.hex || '#3b82f6';
-                const sourceId = `route-${routeIndex}`;
-                
-                if (!map.getSource(sourceId)) {
-                  map.addSource(sourceId, {
-                    type: 'geojson',
-                    data: {
-                      type: 'Feature',
-                      geometry: {
-                        type: 'LineString',
-                        coordinates: route.steps.map(step => [step.longitude, step.latitude])
-                      }
-                    }
-                  });
-                  
-                  map.addLayer({
-                    id: sourceId,
-                    type: 'line',
-                    source: sourceId,
-                    layout: {
-                      'line-join': 'round',
-                      'line-cap': 'round'
-                    },
-                    paint: {
-                      'line-color': routeColor,
-                      'line-width': 4,
-                      'line-opacity': 0.8
-                    }
-                  });
-                }
-              } catch (e) {
-                console.error('Error drawing route:', e);
+            try {
+              const routeColor = SKILL_COLORS[(routeIndex % 4) + 1]?.hex || '#3b82f6';
+              const sourceId = `route-${routeIndex}`;
+              
+              // Use encoded geometry if available, otherwise fall back to step coordinates
+              let coordinates = [];
+              if (route.geometry) {
+                // Decode polyline6 geometry from API response
+                coordinates = decodePolyline6(route.geometry);
+              } else if (route.steps && route.steps.length > 1) {
+                // Fallback to straight lines between stops
+                coordinates = route.steps.map(step => [step.longitude, step.latitude]);
               }
+              
+              if (coordinates.length > 1 && !map.getSource(sourceId)) {
+                map.addSource(sourceId, {
+                  type: 'geojson',
+                  data: {
+                    type: 'Feature',
+                    geometry: {
+                      type: 'LineString',
+                      coordinates: coordinates
+                    }
+                  }
+                });
+                
+                map.addLayer({
+                  id: sourceId,
+                  type: 'line',
+                  source: sourceId,
+                  layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                  },
+                  paint: {
+                    'line-color': routeColor,
+                    'line-width': 4,
+                    'line-opacity': 0.8
+                  }
+                });
+              }
+            } catch (e) {
+              console.error('Error drawing route:', e);
             }
           });
         });
