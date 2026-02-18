@@ -172,10 +172,10 @@ const StatCard = ({ icon: Icon, value, label, color = "primary", trend }) => (
 // Map Component with Nextbillion SDK - Using refs to avoid React DOM conflicts
 const MapView = ({ routes, jobs, depot, apiKey, city }) => {
   const mapContainerRef = React.useRef(null);
-  const mapInstanceRef = React.useRef(null);
+  const nbMapRef = React.useRef(null);
+  const markersRef = React.useRef([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const [mapKey, setMapKey] = useState(0);
 
   useEffect(() => {
     if (!apiKey || !city) {
@@ -184,13 +184,18 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
     }
 
     // Clean up previous map instance
-    if (mapInstanceRef.current) {
+    if (nbMapRef.current) {
       try {
-        mapInstanceRef.current.remove();
+        // Clean up markers first
+        markersRef.current.forEach(marker => {
+          try { marker.remove(); } catch (e) {}
+        });
+        markersRef.current = [];
+        nbMapRef.current.destroy();
       } catch (e) {
         console.warn('Map cleanup warning:', e);
       }
-      mapInstanceRef.current = null;
+      nbMapRef.current = null;
     }
 
     const loadMap = async () => {
@@ -204,14 +209,15 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
         
         const center = depot || [0, 0];
         
-        const map = new nextbillion.NBMap({
+        const nbMap = new nextbillion.NBMap({
           container: mapContainerRef.current,
           zoom: 10,
           style: 'https://api.nextbillion.io/maps/streets/style.json',
           center: [center[1], center[0]] // [lng, lat]
         });
         
-        mapInstanceRef.current = map;
+        nbMapRef.current = nbMap;
+        const map = nbMap.map; // Access the underlying maplibre map instance
         
         map.on('load', () => {
           setMapLoaded(true);
@@ -222,25 +228,28 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
             depotEl.className = 'w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-lg';
             depotEl.innerHTML = '<svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>';
             
-            new nextbillion.Marker({ element: depotEl })
+            const depotMarker = new nextbillion.Marker({ element: depotEl })
               .setLngLat([depot[1], depot[0]])
               .addTo(map);
+            markersRef.current.push(depotMarker);
           }
           
-          // Add job markers
-          jobs.forEach((job, index) => {
+          // Add job markers (limit to first 30 for performance)
+          const displayJobs = jobs.slice(0, 30);
+          displayJobs.forEach((job, index) => {
             const skillColor = SKILL_COLORS[job.skill_required]?.hex || '#6b7280';
             const markerEl = document.createElement('div');
-            markerEl.className = 'relative';
+            markerEl.className = 'relative cursor-pointer';
             markerEl.innerHTML = `
-              <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md" style="background-color: ${skillColor}">
+              <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md transition-transform hover:scale-110" style="background-color: ${skillColor}">
                 ${index + 1}
               </div>
             `;
             
-            new nextbillion.Marker({ element: markerEl })
+            const marker = new nextbillion.Marker({ element: markerEl })
               .setLngLat([job.longitude, job.latitude])
               .addTo(map);
+            markersRef.current.push(marker);
           });
           
           // Draw route polylines
@@ -248,7 +257,7 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
             if (route.steps && route.steps.length > 1) {
               try {
                 const routeColor = SKILL_COLORS[(routeIndex % 4) + 1]?.hex || '#3b82f6';
-                const sourceId = `route-${routeIndex}-${mapKey}`;
+                const sourceId = `route-${routeIndex}`;
                 
                 if (!map.getSource(sourceId)) {
                   map.addSource(sourceId, {
