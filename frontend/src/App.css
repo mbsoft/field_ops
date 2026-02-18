@@ -220,6 +220,39 @@
     left: 16px;
 }
 
+/* Job popup styles */
+.job-popup .maplibregl-popup-content {
+    padding: 0;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.job-popup .maplibregl-popup-close-button {
+    font-size: 18px;
+    padding: 8px;
+    color: #666;
+}
+
+.job-popup .maplibregl-popup-close-button:hover {
+    color: #000;
+    background: rgba(0,0,0,0.05);
+}
+
+/* Job marker styles */
+.job-marker {
+    z-index: 1;
+}
+
+.job-marker:hover {
+    z-index: 100;
+}
+
+/* Depot marker */
+.depot-marker {
+    z-index: 50;
+}
+
 /* Loading spinner */
 .loading-spinner {
     width: 40px;
