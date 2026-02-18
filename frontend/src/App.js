@@ -320,19 +320,18 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
           // Draw route polylines using decoded geometry
           routes.forEach((route, routeIndex) => {
             try {
-              const routeColor = SKILL_COLORS[(routeIndex % 4) + 1]?.hex || '#3b82f6';
-              const sourceId = `route-${routeIndex}`;
+              const routeColor = ROUTE_COLORS[routeIndex % ROUTE_COLORS.length];
+              const sourceId = `route-${route.id}`;
+              const isVisible = !visibleRoutes || visibleRoutes[route.id] !== false;
               
               // Use encoded geometry if available, otherwise fall back to step coordinates
               let coordinates = [];
               if (route.geometry) {
                 // Decode polyline geometry from API response
                 coordinates = decodePolyline(route.geometry);
-                console.log(`Route ${routeIndex}: Decoded ${coordinates.length} coordinates from geometry`);
               } else if (route.steps && route.steps.length > 1) {
                 // Fallback to straight lines between stops
                 coordinates = route.steps.map(step => [step.longitude, step.latitude]);
-                console.log(`Route ${routeIndex}: Using ${coordinates.length} step coordinates (fallback)`);
               }
               
               if (coordinates.length > 1) {
@@ -361,7 +360,8 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
                   source: sourceId,
                   layout: {
                     'line-join': 'round',
-                    'line-cap': 'round'
+                    'line-cap': 'round',
+                    'visibility': isVisible ? 'visible' : 'none'
                   },
                   paint: {
                     'line-color': routeColor,
@@ -369,7 +369,6 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
                     'line-opacity': 0.85
                   }
                 });
-                console.log(`Route ${routeIndex}: Added layer with color ${routeColor}`);
               }
             } catch (e) {
               console.error('Error drawing route:', e, route);
