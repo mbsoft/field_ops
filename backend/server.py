@@ -118,39 +118,39 @@ class Settings(BaseModel):
 GLOBAL_CITIES = {
     "chicago": {
         "name": "Chicago, USA",
-        "center": [41.8781, -87.6298],
+        "center": [41.8781, -87.9],
         "depot": [42.0405426862, -88.3143685336],
-        "bbox": [41.6, 42.3, -88.4, -87.7]  # Excludes Lake Michigan
+        "bbox": [41.65, 42.25, -88.35, -87.85]  # Strictly west of Lake Michigan
     },
     "london": {
         "name": "London, UK",
         "center": [51.5074, -0.1278],
         "depot": [51.5074, -0.1278],
-        "bbox": [51.35, 51.65, -0.35, 0.15]
+        "bbox": [51.4, 51.6, -0.3, 0.05]
     },
     "tokyo": {
         "name": "Tokyo, Japan",
-        "center": [35.6762, 139.6503],
-        "depot": [35.6762, 139.6503],
-        "bbox": [35.55, 35.85, 139.5, 139.85]  # Excludes Tokyo Bay
+        "center": [35.7, 139.55],
+        "depot": [35.7, 139.55],
+        "bbox": [35.6, 35.8, 139.4, 139.7]  # Western Tokyo, excludes bay
     },
     "sydney": {
         "name": "Sydney, Australia",
-        "center": [-33.8688, 151.2093],
-        "depot": [-33.8688, 151.2093],
-        "bbox": [-33.95, -33.7, 150.95, 151.25]  # Excludes harbor
+        "center": [-33.85, 151.0],
+        "depot": [-33.85, 151.0],
+        "bbox": [-33.95, -33.75, 150.85, 151.1]  # Western Sydney
     },
     "mumbai": {
         "name": "Mumbai, India",
-        "center": [19.0760, 72.8777],
-        "depot": [19.0760, 72.8777],
-        "bbox": [18.9, 19.3, 72.7, 73.1]
+        "center": [19.0760, 72.9],
+        "depot": [19.0760, 72.9],
+        "bbox": [18.95, 19.2, 72.85, 73.05]  # Eastern Mumbai mainland
     },
     "berlin": {
         "name": "Berlin, Germany",
         "center": [52.5200, 13.4050],
         "depot": [52.5200, 13.4050],
-        "bbox": [52.3, 52.7, 13.1, 13.7]
+        "bbox": [52.4, 52.6, 13.2, 13.55]
     }
 }
 
