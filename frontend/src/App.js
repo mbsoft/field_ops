@@ -220,8 +220,22 @@ const StatCard = ({ icon: Icon, value, label, color = "primary", trend }) => (
   </div>
 );
 
+// Route colors for technicians - more distinct colors
+const ROUTE_COLORS = [
+  '#3b82f6', // blue
+  '#f59e0b', // amber
+  '#22c55e', // green
+  '#8b5cf6', // purple
+  '#ef4444', // red
+  '#06b6d4', // cyan
+  '#ec4899', // pink
+  '#84cc16', // lime
+  '#f97316', // orange
+  '#6366f1', // indigo
+];
+
 // Map Component with Nextbillion SDK - Using refs to avoid React DOM conflicts
-const MapView = ({ routes, jobs, depot, apiKey, city }) => {
+const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRoute }) => {
   const mapContainerRef = React.useRef(null);
   const nbMapRef = React.useRef(null);
   const markersRef = React.useRef([]);
