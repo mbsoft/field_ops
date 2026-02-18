@@ -169,16 +169,28 @@ const StatCard = ({ icon: Icon, value, label, color = "primary", trend }) => (
   </div>
 );
 
-// Map Component with Nextbillion SDK
+// Map Component with Nextbillion SDK - Using refs to avoid React DOM conflicts
 const MapView = ({ routes, jobs, depot, apiKey, city }) => {
-  const [mapInstance, setMapInstance] = useState(null);
+  const mapContainerRef = React.useRef(null);
+  const mapInstanceRef = React.useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [error, setError] = useState(null);
+  const [mapKey, setMapKey] = useState(0);
 
   useEffect(() => {
     if (!apiKey || !city) {
       setError("API key or city not configured");
       return;
+    }
+
+    // Clean up previous map instance
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.remove();
+      } catch (e) {
+        console.warn('Map cleanup warning:', e);
+      }
+      mapInstanceRef.current = null;
     }
 
     const loadMap = async () => {
@@ -188,24 +200,21 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
         
         nextbillion.default.setApiKey(apiKey);
         
-        const mapContainer = document.getElementById('map-container');
-        if (!mapContainer) return;
-        
-        // Clear existing map
-        mapContainer.innerHTML = '';
+        if (!mapContainerRef.current) return;
         
         const center = depot || [0, 0];
         
         const map = new nextbillion.NBMap({
-          container: 'map-container',
+          container: mapContainerRef.current,
           zoom: 10,
           style: 'https://api.nextbillion.io/maps/streets/style.json',
           center: [center[1], center[0]] // [lng, lat]
         });
         
+        mapInstanceRef.current = map;
+        
         map.on('load', () => {
           setMapLoaded(true);
-          setMapInstance(map);
           
           // Add depot marker
           if (depot) {
@@ -236,36 +245,38 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
           
           // Draw route polylines
           routes.forEach((route, routeIndex) => {
-            if (route.geometry) {
+            if (route.steps && route.steps.length > 1) {
               try {
-                // Decode polyline geometry if needed
                 const routeColor = SKILL_COLORS[(routeIndex % 4) + 1]?.hex || '#3b82f6';
+                const sourceId = `route-${routeIndex}-${mapKey}`;
                 
-                map.addSource(`route-${routeIndex}`, {
-                  type: 'geojson',
-                  data: {
-                    type: 'Feature',
-                    geometry: {
-                      type: 'LineString',
-                      coordinates: route.steps.map(step => [step.longitude, step.latitude])
+                if (!map.getSource(sourceId)) {
+                  map.addSource(sourceId, {
+                    type: 'geojson',
+                    data: {
+                      type: 'Feature',
+                      geometry: {
+                        type: 'LineString',
+                        coordinates: route.steps.map(step => [step.longitude, step.latitude])
+                      }
                     }
-                  }
-                });
-                
-                map.addLayer({
-                  id: `route-${routeIndex}`,
-                  type: 'line',
-                  source: `route-${routeIndex}`,
-                  layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                  },
-                  paint: {
-                    'line-color': routeColor,
-                    'line-width': 4,
-                    'line-opacity': 0.8
-                  }
-                });
+                  });
+                  
+                  map.addLayer({
+                    id: sourceId,
+                    type: 'line',
+                    source: sourceId,
+                    layout: {
+                      'line-join': 'round',
+                      'line-cap': 'round'
+                    },
+                    paint: {
+                      'line-color': routeColor,
+                      'line-width': 4,
+                      'line-opacity': 0.8
+                    }
+                  });
+                }
               } catch (e) {
                 console.error('Error drawing route:', e);
               }
@@ -275,7 +286,7 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
         
         map.on('error', (e) => {
           console.error('Map error:', e);
-          setError('Map failed to load');
+          setError('Map failed to load. Check your API key.');
         });
         
       } catch (err) {
@@ -284,21 +295,28 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
       }
     };
     
+    setMapLoaded(false);
+    setError(null);
     loadMap();
     
     return () => {
-      if (mapInstance) {
-        mapInstance.remove();
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch (e) {
+          console.warn('Map cleanup warning:', e);
+        }
+        mapInstanceRef.current = null;
       }
     };
-  }, [apiKey, city, depot]);
+  }, [apiKey, city, depot, mapKey]);
 
-  // Update markers when routes/jobs change
+  // Update map key to force re-render when data changes significantly
   useEffect(() => {
-    if (mapInstance && mapLoaded && jobs.length > 0) {
-      // Re-render markers
+    if (mapInstanceRef.current && mapLoaded) {
+      setMapKey(prev => prev + 1);
     }
-  }, [jobs, routes, mapInstance, mapLoaded]);
+  }, [jobs.length, routes.length]);
 
   if (error) {
     return (
@@ -313,9 +331,10 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
   }
 
   return (
-    <div id="map-container" className="w-full h-full map-container" data-testid="map-container">
+    <div className="w-full h-full relative" data-testid="map-container">
+      <div ref={mapContainerRef} className="w-full h-full map-container" />
       {!mapLoaded && (
-        <div className="w-full h-full flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       )}
