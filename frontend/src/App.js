@@ -519,7 +519,7 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, selectedJob
         nbMapRef.current = null;
       }
     };
-  }, [apiKey, city, depot, jobs, routes]);
+  }, [apiKey, city, depot, jobs, routes, visibleRoutes]);
 
   // Update route visibility when visibleRoutes changes
   useEffect(() => {
