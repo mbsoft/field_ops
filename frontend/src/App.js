@@ -530,6 +530,38 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
     setVisibleRoutes(updated);
   };
   
+  const downloadJson = async (type) => {
+    if (!lastRequestId) {
+      toast.error('No optimization run available');
+      return;
+    }
+    
+    try {
+      const endpoint = type === 'request' 
+        ? `${API}/optimize/download/request/${lastRequestId}`
+        : `${API}/optimize/download/response/${lastRequestId}`;
+      
+      const response = await axios.get(endpoint);
+      const { filename, data } = response.data;
+      
+      // Create blob and download
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Downloaded ${filename}`);
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error(error.response?.data?.detail || 'Download failed');
+    }
+  };
+  
   return (
     <div className="space-y-6" data-testid="dashboard">
       <div className="flex items-center justify-between">
@@ -543,14 +575,38 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
         </div>
         <div className="flex items-center gap-3">
           {lastRequestId && (
-            <Button
-              variant="outline"
-              onClick={onFetchResult}
-              data-testid="fetch-result-btn"
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Fetch Result
-            </Button>
+            <>
+              <div className="flex items-center gap-1 border rounded-lg p-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => downloadJson('request')}
+                  title="Download Input JSON"
+                  data-testid="download-request-btn"
+                >
+                  <FileJson className="w-4 h-4 mr-1" />
+                  Input
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => downloadJson('response')}
+                  title="Download Response JSON"
+                  data-testid="download-response-btn"
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  Response
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                onClick={onFetchResult}
+                data-testid="fetch-result-btn"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Fetch Result
+              </Button>
+            </>
           )}
           <Button
             onClick={onOptimize}
