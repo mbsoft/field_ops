@@ -498,6 +498,35 @@ const SimpleMapView = ({ jobs, depot }) => {
 const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimize, optimizing, lastRequestId, onFetchResult }) => {
   const cityData = cities.find(c => c.key === selectedCity);
   const depot = cityData?.depot;
+  const [visibleRoutes, setVisibleRoutes] = useState({});
+  const [showAllRoutes, setShowAllRoutes] = useState(true);
+  
+  // Initialize visible routes when routes change
+  useEffect(() => {
+    const initial = {};
+    routes.forEach(route => {
+      initial[route.id] = true;
+    });
+    setVisibleRoutes(initial);
+    setShowAllRoutes(true);
+  }, [routes]);
+  
+  const toggleRoute = (routeId) => {
+    setVisibleRoutes(prev => ({
+      ...prev,
+      [routeId]: !prev[routeId]
+    }));
+  };
+  
+  const toggleAllRoutes = () => {
+    const newState = !showAllRoutes;
+    setShowAllRoutes(newState);
+    const updated = {};
+    routes.forEach(route => {
+      updated[route.id] = newState;
+    });
+    setVisibleRoutes(updated);
+  };
   
   return (
     <div className="space-y-6" data-testid="dashboard">
