@@ -781,14 +781,29 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
               <div className="flex items-center gap-3">
                 <Badge variant="outline">{jobs.length} jobs</Badge>
                 {routes.length > 0 && (
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={toggleAllRoutes}
-                    data-testid="toggle-all-routes-btn"
-                  >
-                    {showAllRoutes ? 'Hide All' : 'Show All'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const updated = {};
+                        routes.forEach(route => { updated[route.id] = false; });
+                        setVisibleRoutes(updated);
+                        setShowAllRoutes(false);
+                      }}
+                      data-testid="hide-all-routes-btn"
+                    >
+                      None
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={toggleAllRoutes}
+                      data-testid="show-all-routes-btn"
+                    >
+                      All
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -801,43 +816,52 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
                   apiKey={apiKey} 
                   city={selectedCity}
                   visibleRoutes={visibleRoutes}
-                  onToggleRoute={toggleRoute}
+                  onSelectJob={(jobId) => console.log('Selected job:', jobId)}
                 />
               ) : (
                 <SimpleMapView jobs={jobs} depot={depot} />
               )}
               
-              {/* Route Legend Panel */}
+              {/* Route Legend Panel with Checkboxes */}
               {routes.length > 0 && apiKey && (
-                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border p-3 max-w-[220px] max-h-[300px] overflow-y-auto z-10">
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border p-3 max-w-[250px] max-h-[350px] overflow-y-auto z-10">
+                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
                     <RouteIcon className="w-4 h-4" />
                     Route Layers
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     {routes.map((route, index) => (
-                      <button
+                      <label
                         key={route.id}
-                        onClick={() => toggleRoute(route.id)}
-                        className={`w-full flex items-center gap-2 p-2 rounded-md transition-colors text-left ${
-                          visibleRoutes[route.id] !== false 
-                            ? 'bg-muted/50 hover:bg-muted' 
-                            : 'opacity-50 hover:opacity-75'
+                        className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors hover:bg-muted/50 ${
+                          visibleRoutes[route.id] !== false ? '' : 'opacity-50'
                         }`}
-                        data-testid={`toggle-route-${route.id}`}
+                        data-testid={`route-checkbox-${route.id}`}
                       >
+                        <Checkbox
+                          checked={visibleRoutes[route.id] !== false}
+                          onCheckedChange={(checked) => toggleRoute(route.id)}
+                          className="border-2"
+                          style={{ 
+                            borderColor: ROUTE_COLORS[index % ROUTE_COLORS.length],
+                            backgroundColor: visibleRoutes[route.id] !== false ? ROUTE_COLORS[index % ROUTE_COLORS.length] : 'transparent'
+                          }}
+                        />
                         <div 
-                          className="w-4 h-4 rounded-full flex-shrink-0"
+                          className="w-3 h-3 rounded-full flex-shrink-0"
                           style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
                         />
                         <span className="text-xs font-medium truncate flex-1">
                           {route.technician_name}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                           {route.steps?.length || 0}
                         </span>
-                      </button>
+                      </label>
                     ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+                    Click on job markers for details
                   </div>
                 </div>
               )}
