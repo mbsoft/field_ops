@@ -309,23 +309,22 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
     loadMap();
     
     return () => {
-      if (mapInstanceRef.current) {
+      // Clean up markers
+      markersRef.current.forEach(marker => {
+        try { marker.remove(); } catch (e) {}
+      });
+      markersRef.current = [];
+      
+      if (nbMapRef.current) {
         try {
-          mapInstanceRef.current.remove();
+          nbMapRef.current.destroy();
         } catch (e) {
           console.warn('Map cleanup warning:', e);
         }
-        mapInstanceRef.current = null;
+        nbMapRef.current = null;
       }
     };
-  }, [apiKey, city, depot, mapKey]);
-
-  // Update map key to force re-render when data changes significantly
-  useEffect(() => {
-    if (mapInstanceRef.current && mapLoaded) {
-      setMapKey(prev => prev + 1);
-    }
-  }, [jobs.length, routes.length]);
+  }, [apiKey, city, depot, jobs, routes]);
 
   if (error) {
     return (
