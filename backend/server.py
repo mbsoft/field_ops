@@ -55,10 +55,10 @@ class JobBase(BaseModel):
     latitude: float
     longitude: float
     service_type: str
-    service_duration: int  # in seconds
+    service_duration: int = 3600  # in seconds, default 1 hour
     skill_required: int
-    time_window_start: int  # unix timestamp
-    time_window_end: int  # unix timestamp
+    time_window_start: Optional[int] = None  # unix timestamp
+    time_window_end: Optional[int] = None  # unix timestamp
     priority: int = 0
     notes: Optional[str] = None
 
