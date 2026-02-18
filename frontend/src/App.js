@@ -1342,6 +1342,16 @@ function App() {
       setSelectedCity(city);
       
       await fetchCityData(city);
+      
+      // Try to get latest optimization request_id for download buttons
+      try {
+        const latestOpt = await axios.get(`${API}/optimize/latest`);
+        if (latestOpt.data?.request_id) {
+          setLastRequestId(latestOpt.data.request_id);
+        }
+      } catch (e) {
+        // No previous optimization runs, ignore
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load data');
