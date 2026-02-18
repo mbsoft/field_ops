@@ -74,19 +74,25 @@ const SKILL_NAMES = {
 const decodePolyline6 = (encoded) => {
   if (!encoded) return [];
   
+  // Unescape backslashes if the polyline contains escaped quotes or backslashes
+  let polyline = encoded;
+  if (polyline.includes('\\')) {
+    polyline = polyline.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  }
+  
   const coordinates = [];
   let index = 0;
   let lat = 0;
   let lng = 0;
   
-  while (index < encoded.length) {
+  while (index < polyline.length) {
     // Decode latitude
     let shift = 0;
     let result = 0;
     let byte;
     
     do {
-      byte = encoded.charCodeAt(index++) - 63;
+      byte = polyline.charCodeAt(index++) - 63;
       result |= (byte & 0x1f) << shift;
       shift += 5;
     } while (byte >= 0x20);
@@ -99,7 +105,7 @@ const decodePolyline6 = (encoded) => {
     result = 0;
     
     do {
-      byte = encoded.charCodeAt(index++) - 63;
+      byte = polyline.charCodeAt(index++) - 63;
       result |= (byte & 0x1f) << shift;
       shift += 5;
     } while (byte >= 0x20);
