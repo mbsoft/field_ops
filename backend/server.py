@@ -488,12 +488,13 @@ async def run_optimization(city: str = "chicago"):
         }
     }
     
-    # Create optimization run record
+    # Create optimization run record with request payload
     opt_run = {
         "id": str(uuid.uuid4()),
         "request_id": None,
         "status": "processing",
         "city": city,
+        "request_payload": payload,  # Store the input JSON
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.optimization_runs.insert_one(opt_run)
