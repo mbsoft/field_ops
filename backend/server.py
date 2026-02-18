@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,10 +6,11 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
-
+import httpx
+import random
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,46 +26,728 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
+# ==================== MODELS ====================
+
+class TechnicianBase(BaseModel):
+    name: str
+    skill: str
+    skill_id: int
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    available: bool = True
+    avatar_url: Optional[str] = None
+
+class Technician(TechnicianBase):
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class JobBase(BaseModel):
+    customer_name: str
+    address: str
+    latitude: float
+    longitude: float
+    service_type: str
+    service_duration: int  # in seconds
+    skill_required: int
+    time_window_start: int  # unix timestamp
+    time_window_end: int  # unix timestamp
+    priority: int = 0
+    notes: Optional[str] = None
 
-# Add your routes to the router instead of directly to app
+class Job(JobBase):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: str = "pending"  # pending, assigned, in_progress, completed, unassigned
+    assigned_technician_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RouteStep(BaseModel):
+    job_id: str
+    customer_name: str
+    address: str
+    latitude: float
+    longitude: float
+    arrival_time: int
+    service_duration: int
+    service_type: str
+    status: str = "pending"
+
+class Route(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    technician_id: str
+    technician_name: str
+    steps: List[RouteStep]
+    total_distance: float  # in meters
+    total_duration: int  # in seconds
+    total_service_time: int  # in seconds
+    geometry: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class OptimizationRun(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    request_id: Optional[str] = None
+    status: str = "pending"  # pending, processing, completed, failed
+    total_cost: Optional[float] = None
+    routes_count: int = 0
+    assigned_jobs: int = 0
+    unassigned_jobs: int = 0
+    total_distance: Optional[float] = None
+    city: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = "app_settings"
+    nextbillion_api_key: Optional[str] = None
+    selected_city: str = "chicago"
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# ==================== DEMO DATA ====================
+
+GLOBAL_CITIES = {
+    "chicago": {
+        "name": "Chicago, USA",
+        "center": [41.8781, -87.6298],
+        "depot": [42.0405426862, -88.3143685336],
+        "bbox": [41.5, 42.5, -88.5, -87.3]
+    },
+    "london": {
+        "name": "London, UK",
+        "center": [51.5074, -0.1278],
+        "depot": [51.5074, -0.1278],
+        "bbox": [51.3, 51.7, -0.5, 0.3]
+    },
+    "tokyo": {
+        "name": "Tokyo, Japan",
+        "center": [35.6762, 139.6503],
+        "depot": [35.6762, 139.6503],
+        "bbox": [35.5, 35.9, 139.4, 139.9]
+    },
+    "sydney": {
+        "name": "Sydney, Australia",
+        "center": [-33.8688, 151.2093],
+        "depot": [-33.8688, 151.2093],
+        "bbox": [-34.1, -33.6, 150.9, 151.4]
+    },
+    "mumbai": {
+        "name": "Mumbai, India",
+        "center": [19.0760, 72.8777],
+        "depot": [19.0760, 72.8777],
+        "bbox": [18.9, 19.3, 72.7, 73.1]
+    },
+    "berlin": {
+        "name": "Berlin, Germany",
+        "center": [52.5200, 13.4050],
+        "depot": [52.5200, 13.4050],
+        "bbox": [52.3, 52.7, 13.1, 13.7]
+    }
+}
+
+SKILLS = {
+    1: {"name": "Plumbing", "color": "#3b82f6"},
+    2: {"name": "Electrical", "color": "#f59e0b"},
+    3: {"name": "HVAC", "color": "#22c55e"},
+    4: {"name": "General Maintenance", "color": "#8b5cf6"}
+}
+
+TECHNICIAN_NAMES = [
+    ("Rajesh", "Mehta"), ("Arjun", "Patel"), ("Daniel", "Scott"), 
+    ("Michael", "Clark"), ("Ethan", "Wilson"), ("Liam", "Anderson"),
+    ("Noah", "Thompson"), ("James", "Martinez"), ("Henry", "Taylor"),
+    ("Oliver", "White"), ("Sarah", "Johnson"), ("Emma", "Williams")
+]
+
+TECHNICIAN_AVATARS = [
+    "https://images.unsplash.com/photo-1581595220975-119360b1c63f?w=200&h=200&fit=crop",
+    "https://images.unsplash.com/photo-1593636583886-0bf6a98a8a36?w=200&h=200&fit=crop",
+    "https://images.pexels.com/photos/8696371/pexels-photo-8696371.jpeg?w=200&h=200&fit=crop",
+    None
+]
+
+def generate_random_location(city_key: str) -> tuple:
+    """Generate random lat/lng within city bounds"""
+    city = GLOBAL_CITIES[city_key]
+    bbox = city["bbox"]
+    lat = random.uniform(bbox[0], bbox[1])
+    lng = random.uniform(bbox[2], bbox[3])
+    return round(lat, 6), round(lng, 6)
+
+def generate_demo_technicians(city_key: str) -> List[Dict]:
+    """Generate demo technicians for a city"""
+    technicians = []
+    skill_ids = list(SKILLS.keys())
+    
+    for i, (first, last) in enumerate(TECHNICIAN_NAMES):
+        skill_id = skill_ids[i % len(skill_ids)]
+        tech = {
+            "id": f"tech_{city_key}_{i+1}",
+            "name": f"{first} {last}",
+            "skill": SKILLS[skill_id]["name"],
+            "skill_id": skill_id,
+            "phone": f"+1-555-{random.randint(100, 999)}-{random.randint(1000, 9999)}",
+            "email": f"{first.lower()}.{last.lower()}@fieldservice.demo",
+            "available": random.random() > 0.1,
+            "avatar_url": TECHNICIAN_AVATARS[i % len(TECHNICIAN_AVATARS)],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        technicians.append(tech)
+    
+    return technicians
+
+def generate_demo_jobs(city_key: str, count: int = 50) -> List[Dict]:
+    """Generate demo jobs for a city"""
+    jobs = []
+    service_types = ["Plumbing", "Electrical", "HVAC", "General Maintenance"]
+    
+    # Get current time and create time windows for today
+    now = int(datetime.now(timezone.utc).timestamp())
+    day_start = now - (now % 86400) + 28800  # 8 AM UTC
+    
+    for i in range(count):
+        lat, lng = generate_random_location(city_key)
+        skill_id = (i % 4) + 1
+        service_type = service_types[skill_id - 1]
+        
+        # Distribute jobs across time slots
+        slot = i % 7
+        time_window_start = day_start + (slot * 3600)
+        time_window_end = time_window_start + 3600
+        
+        job = {
+            "id": f"job_{city_key}_{i+1}",
+            "customer_name": f"Customer_{i+1}",
+            "address": f"{random.randint(100, 9999)} {random.choice(['Main', 'Oak', 'Elm', 'Park', 'Lake', 'River'])} {random.choice(['St', 'Ave', 'Blvd', 'Dr', 'Ln'])}",
+            "latitude": lat,
+            "longitude": lng,
+            "service_type": service_type,
+            "service_duration": random.choice([1800, 2400, 3000, 3600]),
+            "skill_required": skill_id,
+            "time_window_start": time_window_start,
+            "time_window_end": time_window_end,
+            "priority": random.choice([0, 0, 0, 1, 1, 2]),
+            "notes": f"{service_type} service request",
+            "status": "pending",
+            "assigned_technician_id": None,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        jobs.append(job)
+    
+    return jobs
+
+# ==================== API ENDPOINTS ====================
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Field Service Optimization API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+# Settings endpoints
+@api_router.get("/settings")
+async def get_settings():
+    settings = await db.settings.find_one({"id": "app_settings"}, {"_id": 0})
+    if not settings:
+        settings = Settings().model_dump()
+        settings['updated_at'] = settings['updated_at'].isoformat()
+        await db.settings.insert_one(settings)
+    return settings
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+@api_router.put("/settings")
+async def update_settings(
+    nextbillion_api_key: Optional[str] = None,
+    selected_city: Optional[str] = None
+):
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if nextbillion_api_key is not None:
+        update_data["nextbillion_api_key"] = nextbillion_api_key
+    if selected_city is not None and selected_city in GLOBAL_CITIES:
+        update_data["selected_city"] = selected_city
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    await db.settings.update_one(
+        {"id": "app_settings"},
+        {"$set": update_data},
+        upsert=True
+    )
+    return await get_settings()
+
+# Cities endpoint
+@api_router.get("/cities")
+async def get_cities():
+    return [{"key": k, **v} for k, v in GLOBAL_CITIES.items()]
+
+# Technicians endpoints
+@api_router.get("/technicians")
+async def get_technicians(city: Optional[str] = None):
+    query = {}
+    if city:
+        query["id"] = {"$regex": f"^tech_{city}_"}
+    technicians = await db.technicians.find(query, {"_id": 0}).to_list(100)
+    return technicians
+
+@api_router.post("/technicians/generate")
+async def generate_technicians(city: str = "chicago"):
+    if city not in GLOBAL_CITIES:
+        raise HTTPException(status_code=400, detail="Invalid city")
     
-    return status_checks
+    # Clear existing technicians for this city
+    await db.technicians.delete_many({"id": {"$regex": f"^tech_{city}_"}})
+    
+    # Generate new technicians
+    technicians = generate_demo_technicians(city)
+    if technicians:
+        await db.technicians.insert_many(technicians)
+    
+    return {"message": f"Generated {len(technicians)} technicians for {city}", "count": len(technicians)}
+
+@api_router.put("/technicians/{technician_id}/availability")
+async def update_technician_availability(technician_id: str, available: bool):
+    result = await db.technicians.update_one(
+        {"id": technician_id},
+        {"$set": {"available": available}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return {"message": "Updated", "id": technician_id, "available": available}
+
+# Jobs endpoints
+@api_router.get("/jobs")
+async def get_jobs(city: Optional[str] = None, status: Optional[str] = None):
+    query = {}
+    if city:
+        query["id"] = {"$regex": f"^job_{city}_"}
+    if status:
+        query["status"] = status
+    jobs = await db.jobs.find(query, {"_id": 0}).to_list(500)
+    return jobs
+
+@api_router.post("/jobs/generate")
+async def generate_jobs(city: str = "chicago", count: int = 50):
+    if city not in GLOBAL_CITIES:
+        raise HTTPException(status_code=400, detail="Invalid city")
+    
+    # Clear existing jobs for this city
+    await db.jobs.delete_many({"id": {"$regex": f"^job_{city}_"}})
+    
+    # Generate new jobs
+    jobs = generate_demo_jobs(city, count)
+    if jobs:
+        await db.jobs.insert_many(jobs)
+    
+    return {"message": f"Generated {len(jobs)} jobs for {city}", "count": len(jobs)}
+
+@api_router.post("/jobs")
+async def create_job(job: JobBase, city: str = "chicago"):
+    job_doc = Job(**job.model_dump())
+    job_dict = job_doc.model_dump()
+    job_dict["id"] = f"job_{city}_{str(uuid.uuid4())[:8]}"
+    job_dict["created_at"] = job_dict["created_at"].isoformat()
+    await db.jobs.insert_one(job_dict)
+    return job_dict
+
+@api_router.put("/jobs/{job_id}/status")
+async def update_job_status(job_id: str, status: str):
+    valid_statuses = ["pending", "assigned", "in_progress", "completed", "unassigned"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    result = await db.jobs.update_one(
+        {"id": job_id},
+        {"$set": {"status": status}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"message": "Updated", "id": job_id, "status": status}
+
+# Routes endpoints
+@api_router.get("/routes")
+async def get_routes(city: Optional[str] = None):
+    query = {}
+    if city:
+        query["technician_id"] = {"$regex": f"^tech_{city}_"}
+    routes = await db.routes.find(query, {"_id": 0}).to_list(100)
+    return routes
+
+@api_router.delete("/routes")
+async def clear_routes(city: Optional[str] = None):
+    query = {}
+    if city:
+        query["technician_id"] = {"$regex": f"^tech_{city}_"}
+    result = await db.routes.delete_many(query)
+    return {"message": f"Deleted {result.deleted_count} routes"}
+
+# Optimization endpoints
+@api_router.post("/optimize")
+async def run_optimization(city: str = "chicago"):
+    """Run route optimization using Nextbillion API"""
+    settings = await db.settings.find_one({"id": "app_settings"}, {"_id": 0})
+    api_key = settings.get("nextbillion_api_key") if settings else None
+    
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Nextbillion API key not configured. Please set it in Settings.")
+    
+    if city not in GLOBAL_CITIES:
+        raise HTTPException(status_code=400, detail="Invalid city")
+    
+    city_data = GLOBAL_CITIES[city]
+    
+    # Get available technicians
+    technicians = await db.technicians.find(
+        {"id": {"$regex": f"^tech_{city}_"}, "available": True}, 
+        {"_id": 0}
+    ).to_list(50)
+    
+    if not technicians:
+        raise HTTPException(status_code=400, detail="No available technicians")
+    
+    # Get pending jobs
+    jobs = await db.jobs.find(
+        {"id": {"$regex": f"^job_{city}_"}, "status": "pending"}, 
+        {"_id": 0}
+    ).to_list(500)
+    
+    if not jobs:
+        raise HTTPException(status_code=400, detail="No pending jobs to optimize")
+    
+    # Build optimization request
+    depot = city_data["depot"]
+    locations = [f"{depot[0]},{depot[1]}"]  # Depot is always index 0
+    
+    for job in jobs:
+        locations.append(f"{job['latitude']},{job['longitude']}")
+    
+    # Build jobs array for API
+    api_jobs = []
+    for i, job in enumerate(jobs):
+        api_jobs.append({
+            "id": job["id"],
+            "description": job["notes"],
+            "location_index": i + 1,  # +1 because depot is at 0
+            "service": job["service_duration"],
+            "delivery": [random.randint(5, 15)],
+            "skills": [job["skill_required"]],
+            "time_windows": [[job["time_window_start"], job["time_window_end"]]]
+        })
+    
+    # Build vehicles array
+    now = int(datetime.now(timezone.utc).timestamp())
+    day_start = now - (now % 86400) + 25200  # 7 AM UTC
+    day_end = day_start + 28800  # 8 hours shift
+    
+    api_vehicles = []
+    for tech in technicians:
+        api_vehicles.append({
+            "id": tech["id"],
+            "description": tech["skill"],
+            "start_index": 0,
+            "end_index": 0,
+            "time_window": [day_start, day_end],
+            "capacity": [500],
+            "skills": [tech["skill_id"]],
+            "costs": {"fixed": 3600},
+            "max_tasks": 20
+        })
+    
+    # Build request payload
+    payload = {
+        "locations": {
+            "id": 1,
+            "location": locations
+        },
+        "jobs": api_jobs,
+        "vehicles": api_vehicles,
+        "options": {
+            "objective": {
+                "custom": {
+                    "type": "min",
+                    "value": "vehicles"
+                }
+            }
+        }
+    }
+    
+    # Create optimization run record
+    opt_run = {
+        "id": str(uuid.uuid4()),
+        "request_id": None,
+        "status": "processing",
+        "city": city,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.optimization_runs.insert_one(opt_run)
+    
+    try:
+        # Submit optimization request
+        async with httpx.AsyncClient(timeout=60.0) as client_http:
+            response = await client_http.post(
+                f"https://api.nextbillion.io/optimization/v2?key={api_key}",
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                await db.optimization_runs.update_one(
+                    {"id": opt_run["id"]},
+                    {"$set": {"status": "failed"}}
+                )
+                raise HTTPException(status_code=response.status_code, detail=f"Nextbillion API error: {response.text}")
+            
+            result = response.json()
+            request_id = result.get("id")
+            
+            await db.optimization_runs.update_one(
+                {"id": opt_run["id"]},
+                {"$set": {"request_id": request_id}}
+            )
+            
+            return {
+                "message": "Optimization submitted",
+                "optimization_id": opt_run["id"],
+                "request_id": request_id,
+                "jobs_count": len(api_jobs),
+                "vehicles_count": len(api_vehicles)
+            }
+            
+    except httpx.RequestError as e:
+        await db.optimization_runs.update_one(
+            {"id": opt_run["id"]},
+            {"$set": {"status": "failed"}}
+        )
+        raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+@api_router.get("/optimize/result/{request_id}")
+async def get_optimization_result(request_id: str):
+    """Get optimization result from Nextbillion API"""
+    settings = await db.settings.find_one({"id": "app_settings"}, {"_id": 0})
+    api_key = settings.get("nextbillion_api_key") if settings else None
+    
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Nextbillion API key not configured")
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client_http:
+            response = await client_http.get(
+                f"https://api.nextbillion.io/optimization/v2/result?id={request_id}&key={api_key}"
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"Nextbillion API error: {response.text}")
+            
+            result = response.json()
+            
+            # Process result and update database
+            if result.get("status") == "Ok" and result.get("result"):
+                opt_result = result["result"]
+                summary = opt_result.get("summary", {})
+                routes_data = opt_result.get("routes", [])
+                unassigned = opt_result.get("unassigned", [])
+                
+                # Clear existing routes
+                await db.routes.delete_many({})
+                
+                # Get jobs mapping
+                jobs = await db.jobs.find({}, {"_id": 0}).to_list(500)
+                jobs_map = {job["id"]: job for job in jobs}
+                
+                # Process routes
+                for route_data in routes_data:
+                    tech_id = route_data["vehicle"]
+                    steps = []
+                    
+                    for step in route_data.get("steps", []):
+                        if step.get("type") == "job":
+                            job_id = step.get("id")
+                            job = jobs_map.get(job_id, {})
+                            steps.append({
+                                "job_id": job_id,
+                                "customer_name": job.get("customer_name", "Unknown"),
+                                "address": job.get("address", "Unknown"),
+                                "latitude": step.get("location", [0, 0])[0],
+                                "longitude": step.get("location", [0, 0])[1],
+                                "arrival_time": step.get("arrival", 0),
+                                "service_duration": step.get("service", 0),
+                                "service_type": job.get("service_type", "Unknown"),
+                                "status": "assigned"
+                            })
+                            
+                            # Update job status
+                            await db.jobs.update_one(
+                                {"id": job_id},
+                                {"$set": {"status": "assigned", "assigned_technician_id": tech_id}}
+                            )
+                    
+                    if steps:
+                        # Get technician name
+                        tech = await db.technicians.find_one({"id": tech_id}, {"_id": 0})
+                        tech_name = tech.get("name", "Unknown") if tech else "Unknown"
+                        
+                        route = {
+                            "id": str(uuid.uuid4()),
+                            "technician_id": tech_id,
+                            "technician_name": tech_name,
+                            "steps": steps,
+                            "total_distance": route_data.get("distance", 0),
+                            "total_duration": route_data.get("duration", 0),
+                            "total_service_time": route_data.get("service", 0),
+                            "geometry": route_data.get("geometry"),
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.routes.insert_one(route)
+                
+                # Update unassigned jobs
+                for unassigned_job in unassigned:
+                    await db.jobs.update_one(
+                        {"id": unassigned_job["id"]},
+                        {"$set": {"status": "unassigned"}}
+                    )
+                
+                # Update optimization run
+                await db.optimization_runs.update_one(
+                    {"request_id": request_id},
+                    {"$set": {
+                        "status": "completed",
+                        "total_cost": summary.get("cost"),
+                        "routes_count": summary.get("routes", 0),
+                        "assigned_jobs": len(jobs) - summary.get("unassigned", 0),
+                        "unassigned_jobs": summary.get("unassigned", 0),
+                        "total_distance": summary.get("distance")
+                    }}
+                )
+            
+            return result
+            
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+@api_router.post("/reoptimize")
+async def reoptimize(request_id: str, new_job: Optional[JobBase] = None, city: str = "chicago"):
+    """Re-optimize routes with modifications"""
+    settings = await db.settings.find_one({"id": "app_settings"}, {"_id": 0})
+    api_key = settings.get("nextbillion_api_key") if settings else None
+    
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Nextbillion API key not configured")
+    
+    payload = {
+        "id": request_id,
+        "jobs": {
+            "new": [],
+            "update": [],
+            "delete": []
+        },
+        "vehicles": {
+            "new": [],
+            "update": [],
+            "delete": []
+        }
+    }
+    
+    # Add new job if provided
+    if new_job:
+        city_data = GLOBAL_CITIES[city]
+        depot = city_data["depot"]
+        
+        # Get existing locations count
+        jobs = await db.jobs.find({"id": {"$regex": f"^job_{city}_"}}, {"_id": 0}).to_list(500)
+        new_location_index = len(jobs) + 1
+        
+        now = int(datetime.now(timezone.utc).timestamp())
+        payload["jobs"]["new"].append({
+            "id": f"job_{city}_new_{str(uuid.uuid4())[:8]}",
+            "description": new_job.notes or "New service request",
+            "location_index": new_location_index,
+            "location": f"{new_job.latitude},{new_job.longitude}",
+            "service": new_job.service_duration,
+            "delivery": [10],
+            "skills": [new_job.skill_required],
+            "time_windows": [[new_job.time_window_start, new_job.time_window_end]]
+        })
+        
+        # Save new job to database
+        job_doc = Job(**new_job.model_dump())
+        job_dict = job_doc.model_dump()
+        job_dict["id"] = payload["jobs"]["new"][0]["id"]
+        job_dict["created_at"] = job_dict["created_at"].isoformat()
+        await db.jobs.insert_one(job_dict)
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client_http:
+            response = await client_http.post(
+                f"https://api.nextbillion.io/optimization/re_optimization?key={api_key}",
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"Nextbillion API error: {response.text}")
+            
+            result = response.json()
+            new_request_id = result.get("id")
+            
+            return {
+                "message": "Re-optimization submitted",
+                "new_request_id": new_request_id,
+                "original_request_id": request_id
+            }
+            
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+# Statistics endpoint
+@api_router.get("/stats")
+async def get_stats(city: Optional[str] = None):
+    query_tech = {}
+    query_jobs = {}
+    query_routes = {}
+    
+    if city:
+        query_tech["id"] = {"$regex": f"^tech_{city}_"}
+        query_jobs["id"] = {"$regex": f"^job_{city}_"}
+        query_routes["technician_id"] = {"$regex": f"^tech_{city}_"}
+    
+    total_technicians = await db.technicians.count_documents(query_tech)
+    available_technicians = await db.technicians.count_documents({**query_tech, "available": True})
+    total_jobs = await db.jobs.count_documents(query_jobs)
+    pending_jobs = await db.jobs.count_documents({**query_jobs, "status": "pending"})
+    assigned_jobs = await db.jobs.count_documents({**query_jobs, "status": "assigned"})
+    completed_jobs = await db.jobs.count_documents({**query_jobs, "status": "completed"})
+    unassigned_jobs = await db.jobs.count_documents({**query_jobs, "status": "unassigned"})
+    total_routes = await db.routes.count_documents(query_routes)
+    
+    # Calculate total distance
+    routes = await db.routes.find(query_routes, {"total_distance": 1, "_id": 0}).to_list(100)
+    total_distance = sum(r.get("total_distance", 0) for r in routes)
+    
+    return {
+        "total_technicians": total_technicians,
+        "available_technicians": available_technicians,
+        "total_jobs": total_jobs,
+        "pending_jobs": pending_jobs,
+        "assigned_jobs": assigned_jobs,
+        "completed_jobs": completed_jobs,
+        "unassigned_jobs": unassigned_jobs,
+        "total_routes": total_routes,
+        "total_distance_km": round(total_distance / 1000, 2)
+    }
+
+# Optimization history
+@api_router.get("/optimization-history")
+async def get_optimization_history(city: Optional[str] = None):
+    query = {}
+    if city:
+        query["city"] = city
+    runs = await db.optimization_runs.find(query, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return runs
+
+# Skills endpoint
+@api_router.get("/skills")
+async def get_skills():
+    return SKILLS
 
 # Include the router in the main app
 app.include_router(api_router)
@@ -76,13 +759,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
