@@ -314,12 +314,22 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
               if (route.geometry) {
                 // Decode polyline6 geometry from API response
                 coordinates = decodePolyline6(route.geometry);
+                console.log(`Route ${routeIndex}: Decoded ${coordinates.length} coordinates from geometry`);
               } else if (route.steps && route.steps.length > 1) {
                 // Fallback to straight lines between stops
                 coordinates = route.steps.map(step => [step.longitude, step.latitude]);
+                console.log(`Route ${routeIndex}: Using ${coordinates.length} step coordinates (fallback)`);
               }
               
-              if (coordinates.length > 1 && !map.getSource(sourceId)) {
+              if (coordinates.length > 1) {
+                // Remove existing source/layer if present
+                if (map.getLayer(sourceId)) {
+                  map.removeLayer(sourceId);
+                }
+                if (map.getSource(sourceId)) {
+                  map.removeSource(sourceId);
+                }
+                
                 map.addSource(sourceId, {
                   type: 'geojson',
                   data: {
@@ -341,13 +351,14 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
                   },
                   paint: {
                     'line-color': routeColor,
-                    'line-width': 4,
-                    'line-opacity': 0.8
+                    'line-width': 5,
+                    'line-opacity': 0.85
                   }
                 });
+                console.log(`Route ${routeIndex}: Added layer with color ${routeColor}`);
               }
             } catch (e) {
-              console.error('Error drawing route:', e);
+              console.error('Error drawing route:', e, route);
             }
           });
         });
