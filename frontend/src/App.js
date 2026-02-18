@@ -610,9 +610,21 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
           <div className="bento-card p-0 overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold">Route Map</h3>
-              <Badge variant="outline">{jobs.length} jobs</Badge>
+              <div className="flex items-center gap-3">
+                <Badge variant="outline">{jobs.length} jobs</Badge>
+                {routes.length > 0 && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={toggleAllRoutes}
+                    data-testid="toggle-all-routes-btn"
+                  >
+                    {showAllRoutes ? 'Hide All' : 'Show All'}
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="h-[500px]">
+            <div className="h-[500px] relative">
               {apiKey ? (
                 <MapView 
                   routes={routes} 
@@ -620,9 +632,46 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
                   depot={depot} 
                   apiKey={apiKey} 
                   city={selectedCity}
+                  visibleRoutes={visibleRoutes}
+                  onToggleRoute={toggleRoute}
                 />
               ) : (
                 <SimpleMapView jobs={jobs} depot={depot} />
+              )}
+              
+              {/* Route Legend Panel */}
+              {routes.length > 0 && apiKey && (
+                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border p-3 max-w-[220px] max-h-[300px] overflow-y-auto z-10">
+                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                    <RouteIcon className="w-4 h-4" />
+                    Route Layers
+                  </h4>
+                  <div className="space-y-2">
+                    {routes.map((route, index) => (
+                      <button
+                        key={route.id}
+                        onClick={() => toggleRoute(route.id)}
+                        className={`w-full flex items-center gap-2 p-2 rounded-md transition-colors text-left ${
+                          visibleRoutes[route.id] !== false 
+                            ? 'bg-muted/50 hover:bg-muted' 
+                            : 'opacity-50 hover:opacity-75'
+                        }`}
+                        data-testid={`toggle-route-${route.id}`}
+                      >
+                        <div 
+                          className="w-4 h-4 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
+                        />
+                        <span className="text-xs font-medium truncate flex-1">
+                          {route.technician_name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {route.steps?.length || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -657,11 +706,19 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
               ) : (
                 <div className="space-y-3">
                   {routes.map((route, index) => (
-                    <div key={route.id} className="p-3 bg-muted/50 rounded-lg">
+                    <button 
+                      key={route.id} 
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${
+                        visibleRoutes[route.id] !== false 
+                          ? 'bg-muted/50 hover:bg-muted' 
+                          : 'opacity-50 bg-muted/20'
+                      }`}
+                      onClick={() => toggleRoute(route.id)}
+                    >
                       <div className="flex items-center gap-3">
                         <div 
                           className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                          style={{ backgroundColor: SKILL_COLORS[(index % 4) + 1]?.hex }}
+                          style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
                         >
                           {route.steps?.length || 0}
                         </div>
@@ -672,7 +729,7 @@ const Dashboard = ({ stats, routes, jobs, cities, selectedCity, apiKey, onOptimi
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
