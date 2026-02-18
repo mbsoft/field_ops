@@ -312,8 +312,8 @@ const MapView = ({ routes, jobs, depot, apiKey, city }) => {
               // Use encoded geometry if available, otherwise fall back to step coordinates
               let coordinates = [];
               if (route.geometry) {
-                // Decode polyline6 geometry from API response
-                coordinates = decodePolyline6(route.geometry);
+                // Decode polyline geometry from API response
+                coordinates = decodePolyline(route.geometry);
                 console.log(`Route ${routeIndex}: Decoded ${coordinates.length} coordinates from geometry`);
               } else if (route.steps && route.steps.length > 1) {
                 // Fallback to straight lines between stops
