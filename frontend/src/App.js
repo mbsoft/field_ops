@@ -243,13 +243,52 @@ const ROUTE_COLORS = [
   '#6366f1', // indigo
 ];
 
-// Map Component with Nextbillion SDK - Using refs to avoid React DOM conflicts
-const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRoute }) => {
+// Map Component with Nextbillion SDK - Enhanced with job filtering and details
+const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, selectedJobId, onSelectJob }) => {
   const mapContainerRef = React.useRef(null);
   const nbMapRef = React.useRef(null);
   const markersRef = React.useRef([]);
+  const popupRef = React.useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [error, setError] = useState(null);
+
+  // Build a map of job_id to route info for filtering
+  const getJobsToDisplay = () => {
+    // Get list of visible route IDs
+    const visibleRouteIds = Object.entries(visibleRoutes || {})
+      .filter(([_, isVisible]) => isVisible)
+      .map(([routeId]) => routeId);
+    
+    // If no routes are visible or all routes visible, show all jobs in routes
+    const allRoutesVisible = visibleRouteIds.length === routes.length || visibleRouteIds.length === 0;
+    
+    // Build job display list with sequence numbers
+    const jobsToShow = [];
+    
+    routes.forEach((route, routeIndex) => {
+      const isRouteVisible = !visibleRoutes || visibleRoutes[route.id] !== false;
+      if (!isRouteVisible && !allRoutesVisible) return;
+      
+      const routeColor = ROUTE_COLORS[routeIndex % ROUTE_COLORS.length];
+      
+      (route.steps || []).forEach((step, stepIndex) => {
+        // Find the full job data
+        const fullJob = jobs.find(j => j.id === step.job_id) || step;
+        
+        jobsToShow.push({
+          ...fullJob,
+          ...step,
+          sequenceNumber: stepIndex + 1,
+          routeIndex,
+          routeColor,
+          technicianName: route.technician_name,
+          routeId: route.id
+        });
+      });
+    });
+    
+    return jobsToShow;
+  };
 
   useEffect(() => {
     if (!apiKey || !city) {
@@ -260,11 +299,13 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
     // Clean up previous map instance
     if (nbMapRef.current) {
       try {
-        // Clean up markers first
         markersRef.current.forEach(marker => {
           try { marker.remove(); } catch (e) {}
         });
         markersRef.current = [];
+        if (popupRef.current) {
+          try { popupRef.current.remove(); } catch (e) {}
+        }
         nbMapRef.current.destroy();
       } catch (e) {
         console.warn('Map cleanup warning:', e);
@@ -287,11 +328,20 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
           container: mapContainerRef.current,
           zoom: 10,
           style: 'https://api.nextbillion.io/maps/streets/style.json',
-          center: [center[1], center[0]] // [lng, lat]
+          center: [center[1], center[0]]
         });
         
         nbMapRef.current = nbMap;
-        const map = nbMap.map; // Access the underlying maplibre map instance
+        const map = nbMap.map;
+        
+        // Create a popup instance for job details
+        const popup = new nextbillion.Popup({
+          closeButton: true,
+          closeOnClick: false,
+          maxWidth: '300px',
+          className: 'job-popup'
+        });
+        popupRef.current = popup;
         
         map.on('load', () => {
           setMapLoaded(true);
@@ -299,8 +349,14 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
           // Add depot marker
           if (depot) {
             const depotEl = document.createElement('div');
-            depotEl.className = 'w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-lg';
-            depotEl.innerHTML = '<svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>';
+            depotEl.className = 'depot-marker';
+            depotEl.innerHTML = `
+              <div class="w-10 h-10 bg-zinc-900 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+                <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
+                </svg>
+              </div>
+            `;
             
             const depotMarker = new nextbillion.Marker({ element: depotEl })
               .setLngLat([depot[1], depot[0]])
@@ -308,17 +364,75 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
             markersRef.current.push(depotMarker);
           }
           
-          // Add job markers (limit to first 30 for performance)
-          const displayJobs = jobs.slice(0, 30);
-          displayJobs.forEach((job, index) => {
-            const skillColor = SKILL_COLORS[job.skill_required]?.hex || '#6b7280';
+          // Add job markers with sequence numbers
+          const jobsToDisplay = getJobsToDisplay();
+          
+          jobsToDisplay.forEach((job) => {
             const markerEl = document.createElement('div');
-            markerEl.className = 'relative cursor-pointer';
+            markerEl.className = 'job-marker cursor-pointer';
             markerEl.innerHTML = `
-              <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md transition-transform hover:scale-110" style="background-color: ${skillColor}">
-                ${index + 1}
+              <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg border-2 border-white transition-all hover:scale-125 hover:z-50" 
+                   style="background-color: ${job.routeColor}">
+                ${job.sequenceNumber}
               </div>
             `;
+            
+            // Add click handler to show popup with job details
+            markerEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              
+              const popupContent = `
+                <div class="p-3 min-w-[200px]">
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" 
+                         style="background-color: ${job.routeColor}">
+                      ${job.sequenceNumber}
+                    </div>
+                    <span class="font-bold text-sm">${job.customer_name || 'Customer'}</span>
+                  </div>
+                  <div class="space-y-1 text-xs">
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Service:</span>
+                      <span class="font-medium">${job.service_type || 'N/A'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Address:</span>
+                      <span class="font-medium truncate max-w-[150px]">${job.address || 'N/A'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Duration:</span>
+                      <span class="font-medium">${Math.round((job.service_duration || 0) / 60)} min</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Arrival:</span>
+                      <span class="font-medium">${job.arrival_time ? new Date(job.arrival_time * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Technician:</span>
+                      <span class="font-medium">${job.technicianName || 'N/A'}</span>
+                    </div>
+                    ${job.notes ? `<div class="mt-2 pt-2 border-t text-gray-600">${job.notes}</div>` : ''}
+                  </div>
+                </div>
+              `;
+              
+              popup
+                .setLngLat([job.longitude, job.latitude])
+                .setHTML(popupContent)
+                .addTo(map);
+              
+              if (onSelectJob) onSelectJob(job.job_id);
+            });
+            
+            // Add hover effect
+            markerEl.addEventListener('mouseenter', () => {
+              markerEl.querySelector('div').style.transform = 'scale(1.2)';
+              markerEl.querySelector('div').style.zIndex = '100';
+            });
+            markerEl.addEventListener('mouseleave', () => {
+              markerEl.querySelector('div').style.transform = 'scale(1)';
+              markerEl.querySelector('div').style.zIndex = '1';
+            });
             
             const marker = new nextbillion.Marker({ element: markerEl })
               .setLngLat([job.longitude, job.latitude])
@@ -326,40 +440,29 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
             markersRef.current.push(marker);
           });
           
-          // Draw route polylines using decoded geometry
+          // Draw route polylines
           routes.forEach((route, routeIndex) => {
             try {
               const routeColor = ROUTE_COLORS[routeIndex % ROUTE_COLORS.length];
               const sourceId = `route-${route.id}`;
               const isVisible = !visibleRoutes || visibleRoutes[route.id] !== false;
               
-              // Use encoded geometry if available, otherwise fall back to step coordinates
               let coordinates = [];
               if (route.geometry) {
-                // Decode polyline geometry from API response
                 coordinates = decodePolyline(route.geometry);
               } else if (route.steps && route.steps.length > 1) {
-                // Fallback to straight lines between stops
                 coordinates = route.steps.map(step => [step.longitude, step.latitude]);
               }
               
               if (coordinates.length > 1) {
-                // Remove existing source/layer if present
-                if (map.getLayer(sourceId)) {
-                  map.removeLayer(sourceId);
-                }
-                if (map.getSource(sourceId)) {
-                  map.removeSource(sourceId);
-                }
+                if (map.getLayer(sourceId)) map.removeLayer(sourceId);
+                if (map.getSource(sourceId)) map.removeSource(sourceId);
                 
                 map.addSource(sourceId, {
                   type: 'geojson',
                   data: {
                     type: 'Feature',
-                    geometry: {
-                      type: 'LineString',
-                      coordinates: coordinates
-                    }
+                    geometry: { type: 'LineString', coordinates }
                   }
                 });
                 
