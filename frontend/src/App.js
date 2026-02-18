@@ -69,9 +69,9 @@ const SKILL_NAMES = {
   4: "General Maintenance"
 };
 
-// Polyline6 decoder - decodes encoded polyline string to coordinates
-// Polyline6 uses 6 decimal places precision (divide by 1e6)
-const decodePolyline6 = (encoded) => {
+// Polyline decoder - decodes encoded polyline string to coordinates
+// Nextbillion uses standard polyline encoding (precision 5, divide by 1e5)
+const decodePolyline = (encoded) => {
   if (!encoded) return [];
   
   // Unescape backslashes if the polyline contains escaped quotes or backslashes
@@ -113,8 +113,8 @@ const decodePolyline6 = (encoded) => {
     const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
     lng += deltaLng;
     
-    // Polyline6 uses 6 decimal places (1e6)
-    coordinates.push([lng / 1e6, lat / 1e6]); // [lng, lat] for GeoJSON
+    // Standard polyline uses precision 5 (1e5)
+    coordinates.push([lng / 1e5, lat / 1e5]); // [lng, lat] for GeoJSON
   }
   
   return coordinates;
