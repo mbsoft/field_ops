@@ -623,7 +623,7 @@ async def get_optimization_result(request_id: str):
                         {"$set": {"status": "unassigned"}}
                     )
                 
-                # Update optimization run
+                # Update optimization run with response payload
                 await db.optimization_runs.update_one(
                     {"request_id": request_id},
                     {"$set": {
@@ -632,7 +632,8 @@ async def get_optimization_result(request_id: str):
                         "routes_count": summary.get("routes", 0),
                         "assigned_jobs": len(jobs) - summary.get("unassigned", 0),
                         "unassigned_jobs": summary.get("unassigned", 0),
-                        "total_distance": summary.get("distance")
+                        "total_distance": summary.get("distance"),
+                        "response_payload": result  # Store the response JSON
                     }}
                 )
             
@@ -640,6 +641,51 @@ async def get_optimization_result(request_id: str):
             
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+# Download endpoints for request/response JSON
+@api_router.get("/optimize/download/request/{request_id}")
+async def download_request_json(request_id: str):
+    """Download the input JSON that was sent to the optimization API"""
+    opt_run = await db.optimization_runs.find_one({"request_id": request_id}, {"_id": 0})
+    if not opt_run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+    
+    request_payload = opt_run.get("request_payload")
+    if not request_payload:
+        raise HTTPException(status_code=404, detail="Request payload not available")
+    
+    return {
+        "filename": f"optimization_request_{request_id}.json",
+        "data": request_payload
+    }
+
+@api_router.get("/optimize/download/response/{request_id}")
+async def download_response_json(request_id: str):
+    """Download the response JSON from the optimization API"""
+    opt_run = await db.optimization_runs.find_one({"request_id": request_id}, {"_id": 0})
+    if not opt_run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+    
+    response_payload = opt_run.get("response_payload")
+    if not response_payload:
+        raise HTTPException(status_code=404, detail="Response payload not available. Run 'Fetch Result' first.")
+    
+    return {
+        "filename": f"optimization_response_{request_id}.json",
+        "data": response_payload
+    }
+
+@api_router.get("/optimize/latest")
+async def get_latest_optimization():
+    """Get the latest optimization run with request_id"""
+    opt_run = await db.optimization_runs.find_one(
+        {"request_id": {"$ne": None}},
+        {"_id": 0},
+        sort=[("created_at", -1)]
+    )
+    if not opt_run:
+        raise HTTPException(status_code=404, detail="No optimization runs found")
+    return opt_run
 
 @api_router.post("/reoptimize")
 async def reoptimize(request_id: str, new_job: Optional[JobBase] = None, city: str = "chicago"):
