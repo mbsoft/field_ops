@@ -409,6 +409,21 @@ const MapView = ({ routes, jobs, depot, apiKey, city, visibleRoutes, onToggleRou
     };
   }, [apiKey, city, depot, jobs, routes]);
 
+  // Update route visibility when visibleRoutes changes
+  useEffect(() => {
+    if (!nbMapRef.current || !mapLoaded) return;
+    
+    const map = nbMapRef.current.map;
+    routes.forEach((route) => {
+      const sourceId = `route-${route.id}`;
+      const isVisible = !visibleRoutes || visibleRoutes[route.id] !== false;
+      
+      if (map.getLayer(sourceId)) {
+        map.setLayoutProperty(sourceId, 'visibility', isVisible ? 'visible' : 'none');
+      }
+    });
+  }, [visibleRoutes, routes, mapLoaded]);
+
   if (error) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-muted/50 rounded-lg">
