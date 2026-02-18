@@ -114,30 +114,31 @@ class Settings(BaseModel):
 
 # ==================== DEMO DATA ====================
 
+# Bounding boxes adjusted to exclude water bodies
 GLOBAL_CITIES = {
     "chicago": {
         "name": "Chicago, USA",
         "center": [41.8781, -87.6298],
         "depot": [42.0405426862, -88.3143685336],
-        "bbox": [41.5, 42.5, -88.5, -87.3]
+        "bbox": [41.6, 42.3, -88.4, -87.7]  # Excludes Lake Michigan
     },
     "london": {
         "name": "London, UK",
         "center": [51.5074, -0.1278],
         "depot": [51.5074, -0.1278],
-        "bbox": [51.3, 51.7, -0.5, 0.3]
+        "bbox": [51.35, 51.65, -0.35, 0.15]
     },
     "tokyo": {
         "name": "Tokyo, Japan",
         "center": [35.6762, 139.6503],
         "depot": [35.6762, 139.6503],
-        "bbox": [35.5, 35.9, 139.4, 139.9]
+        "bbox": [35.55, 35.85, 139.5, 139.85]  # Excludes Tokyo Bay
     },
     "sydney": {
         "name": "Sydney, Australia",
         "center": [-33.8688, 151.2093],
         "depot": [-33.8688, 151.2093],
-        "bbox": [-34.1, -33.6, 150.9, 151.4]
+        "bbox": [-33.95, -33.7, 150.95, 151.25]  # Excludes harbor
     },
     "mumbai": {
         "name": "Mumbai, India",
