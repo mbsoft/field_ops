@@ -345,12 +345,24 @@ async def generate_jobs(city: str = "chicago", count: int = 50):
 
 @api_router.post("/jobs")
 async def create_job(job: JobBase, city: str = "chicago"):
-    job_doc = Job(**job.model_dump())
-    job_dict = job_doc.model_dump()
-    job_dict["id"] = f"job_{city}_{str(uuid.uuid4())[:8]}"
-    job_dict["created_at"] = job_dict["created_at"].isoformat()
-    await db.jobs.insert_one(job_dict)
-    return job_dict
+    job_dict = job.model_dump()
+    
+    # Set default time windows if not provided
+    now = int(datetime.now(timezone.utc).timestamp())
+    if job_dict.get("time_window_start") is None:
+        job_dict["time_window_start"] = now + 3600  # 1 hour from now
+    if job_dict.get("time_window_end") is None:
+        job_dict["time_window_end"] = now + 7200  # 2 hours from now
+    
+    job_doc = Job(**job_dict)
+    job_final = job_doc.model_dump()
+    job_final["id"] = f"job_{city}_{str(uuid.uuid4())[:8]}"
+    job_final["created_at"] = job_final["created_at"].isoformat()
+    await db.jobs.insert_one(job_final)
+    
+    # Remove _id from response
+    job_final.pop("_id", None)
+    return job_final
 
 @api_router.put("/jobs/{job_id}/status")
 async def update_job_status(job_id: str, status: str):
