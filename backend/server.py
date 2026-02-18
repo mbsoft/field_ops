@@ -103,6 +103,8 @@ class OptimizationRun(BaseModel):
     unassigned_jobs: int = 0
     total_distance: Optional[float] = None
     city: str
+    request_payload: Optional[Dict[str, Any]] = None  # Store input JSON
+    response_payload: Optional[Dict[str, Any]] = None  # Store response JSON
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Settings(BaseModel):
