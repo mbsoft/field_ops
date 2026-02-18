@@ -10,6 +10,8 @@
     min-height: 100vh;
     border-right: 1px solid hsl(var(--border));
     background-color: hsl(var(--card));
+    position: relative;
+    z-index: 100;
 }
 
 .sidebar-nav-item {
