@@ -650,6 +650,7 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
         "request_id": None,
         "status": "processing",
         "city": city,
+        "scheduled_date": date,  # Store the date for this optimization
         "request_payload": payload,  # Store the input JSON
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -682,6 +683,7 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
                 "message": "Optimization submitted",
                 "optimization_id": opt_run["id"],
                 "request_id": request_id,
+                "scheduled_date": date,
                 "jobs_count": len(api_jobs),
                 "vehicles_count": len(api_vehicles)
             }
