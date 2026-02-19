@@ -135,6 +135,7 @@ const Sidebar = ({ selectedCity, cities, onCityChange }) => {
   
   const navItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+    { path: "/weekly", icon: Calendar, label: "Weekly Plan" },
     { path: "/routes", icon: RouteIcon, label: "Routes" },
     { path: "/technicians", icon: Users, label: "Technicians" },
     { path: "/jobs", icon: Briefcase, label: "Jobs" },
