@@ -375,20 +375,123 @@ async def get_jobs(city: Optional[str] = None, status: Optional[str] = None):
     jobs = await db.jobs.find(query, {"_id": 0}).to_list(500)
     return jobs
 
+@api_router.get("/jobs/by-date")
+async def get_jobs_by_date(city: str = "chicago", date: Optional[str] = None):
+    """Get jobs for a specific date"""
+    query = {"id": {"$regex": f"^job_{city}_"}}
+    if date:
+        query["scheduled_date"] = date
+    jobs = await db.jobs.find(query, {"_id": 0}).to_list(500)
+    return jobs
+
+@api_router.get("/jobs/weekly-summary")
+async def get_weekly_summary(city: str = "chicago"):
+    """Get summary of jobs for the current week"""
+    from datetime import timedelta
+    
+    today = datetime.now(timezone.utc)
+    days_since_monday = today.weekday()
+    monday = today - timedelta(days=days_since_monday)
+    
+    summary = []
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    for day_offset in range(7):
+        current_day = monday + timedelta(days=day_offset)
+        date_str = current_day.strftime("%Y-%m-%d")
+        
+        # Count jobs for this date
+        job_count = await db.jobs.count_documents({
+            "id": {"$regex": f"^job_{city}_"},
+            "scheduled_date": date_str
+        })
+        
+        # Count routes for this date
+        route_count = await db.routes.count_documents({
+            "technician_id": {"$regex": f"^tech_{city}_"},
+            "scheduled_date": date_str
+        })
+        
+        # Get job status breakdown
+        pending = await db.jobs.count_documents({
+            "id": {"$regex": f"^job_{city}_"},
+            "scheduled_date": date_str,
+            "status": "pending"
+        })
+        assigned = await db.jobs.count_documents({
+            "id": {"$regex": f"^job_{city}_"},
+            "scheduled_date": date_str,
+            "status": "assigned"
+        })
+        
+        summary.append({
+            "date": date_str,
+            "day_name": day_names[day_offset],
+            "day_offset": day_offset,
+            "is_today": day_offset == days_since_monday,
+            "is_weekend": day_offset >= 5,
+            "job_count": job_count,
+            "route_count": route_count,
+            "pending_jobs": pending,
+            "assigned_jobs": assigned
+        })
+    
+    return summary
+
 @api_router.post("/jobs/generate")
-async def generate_jobs(city: str = "chicago", count: int = 50):
+async def generate_jobs(city: str = "chicago", count: int = 50, date: Optional[str] = None):
+    if city not in GLOBAL_CITIES:
+        raise HTTPException(status_code=400, detail="Invalid city")
+    
+    if date:
+        # Clear existing jobs for this city and date
+        await db.jobs.delete_many({
+            "id": {"$regex": f"^job_{city}_"},
+            "scheduled_date": date
+        })
+        # Generate jobs for specific date
+        jobs = generate_demo_jobs(city, count, date)
+    else:
+        # Clear all existing jobs for this city
+        await db.jobs.delete_many({"id": {"$regex": f"^job_{city}_"}})
+        # Generate jobs without specific date
+        jobs = generate_demo_jobs(city, count)
+    
+    if jobs:
+        await db.jobs.insert_many(jobs)
+    
+    return {"message": f"Generated {len(jobs)} jobs for {city}", "count": len(jobs), "date": date}
+
+@api_router.post("/jobs/generate-weekly")
+async def generate_weekly_jobs_endpoint(city: str = "chicago", jobs_per_day: int = 8):
+    """Generate jobs for an entire week"""
     if city not in GLOBAL_CITIES:
         raise HTTPException(status_code=400, detail="Invalid city")
     
     # Clear existing jobs for this city
     await db.jobs.delete_many({"id": {"$regex": f"^job_{city}_"}})
     
-    # Generate new jobs
-    jobs = generate_demo_jobs(city, count)
-    if jobs:
-        await db.jobs.insert_many(jobs)
+    # Clear existing routes
+    await db.routes.delete_many({"technician_id": {"$regex": f"^tech_{city}_"}})
     
-    return {"message": f"Generated {len(jobs)} jobs for {city}", "count": len(jobs)}
+    # Generate weekly jobs
+    weekly_data = generate_weekly_jobs(city, jobs_per_day)
+    
+    total_jobs = 0
+    for date_str, day_data in weekly_data.items():
+        if day_data["jobs"]:
+            await db.jobs.insert_many(day_data["jobs"])
+            total_jobs += len(day_data["jobs"])
+    
+    return {
+        "message": f"Generated {total_jobs} jobs for {city} (7 days)",
+        "total_jobs": total_jobs,
+        "jobs_per_day": jobs_per_day,
+        "weekly_summary": [
+            {"date": d, "day": data["day_name"], "jobs": data["job_count"]}
+            for d, data in weekly_data.items()
+        ]
+    }
 
 @api_router.post("/jobs")
 async def create_job(job: JobBase, city: str = "chicago"):
