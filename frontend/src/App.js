@@ -1982,6 +1982,17 @@ function App() {
               } 
             />
             <Route 
+              path="/weekly" 
+              element={
+                <WeeklyPlanPage 
+                  selectedCity={selectedCity}
+                  apiKey={settings.nextbillion_api_key}
+                  onGenerateWeekly={handleGenerateWeekly}
+                  generating={generatingWeekly}
+                />
+              } 
+            />
+            <Route 
               path="/routes" 
               element={
                 <RoutesPage 
