@@ -210,29 +210,39 @@ def generate_demo_technicians(city_key: str) -> List[Dict]:
     
     return technicians
 
-def generate_demo_jobs(city_key: str, count: int = 50) -> List[Dict]:
-    """Generate demo jobs for a city"""
+def generate_demo_jobs(city_key: str, count: int = 50, scheduled_date: Optional[str] = None) -> List[Dict]:
+    """Generate demo jobs for a city for a specific date"""
     jobs = []
     service_types = ["Plumbing", "Electrical", "HVAC", "General Maintenance"]
+    customer_first_names = ["John", "Sarah", "Mike", "Emma", "David", "Lisa", "James", "Anna", "Robert", "Maria"]
+    customer_last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Taylor"]
     
-    # Get current time and create time windows for today
-    now = int(datetime.now(timezone.utc).timestamp())
-    day_start = now - (now % 86400) + 28800  # 8 AM UTC
+    # Use provided date or today
+    if scheduled_date:
+        date_obj = datetime.strptime(scheduled_date, "%Y-%m-%d")
+    else:
+        date_obj = datetime.now(timezone.utc)
+    
+    # Create time windows for the scheduled date (8 AM to 6 PM)
+    day_start = int(date_obj.replace(hour=8, minute=0, second=0).timestamp())
     
     for i in range(count):
         lat, lng = generate_random_location(city_key)
         skill_id = (i % 4) + 1
         service_type = service_types[skill_id - 1]
         
-        # Distribute jobs across time slots
-        slot = i % 7
+        # Distribute jobs across time slots (8 AM to 5 PM, 9 slots)
+        slot = i % 9
         time_window_start = day_start + (slot * 3600)
         time_window_end = time_window_start + 3600
         
+        # Generate realistic customer names
+        customer_name = f"{random.choice(customer_first_names)} {random.choice(customer_last_names)}"
+        
         job = {
-            "id": f"job_{city_key}_{i+1}",
-            "customer_name": f"Customer_{i+1}",
-            "address": f"{random.randint(100, 9999)} {random.choice(['Main', 'Oak', 'Elm', 'Park', 'Lake', 'River'])} {random.choice(['St', 'Ave', 'Blvd', 'Dr', 'Ln'])}",
+            "id": f"job_{city_key}_{scheduled_date or 'today'}_{i+1}",
+            "customer_name": customer_name,
+            "address": f"{random.randint(100, 9999)} {random.choice(['Main', 'Oak', 'Elm', 'Park', 'Lake', 'River', 'Cedar', 'Maple', 'Pine', 'Hill'])} {random.choice(['St', 'Ave', 'Blvd', 'Dr', 'Ln', 'Way', 'Ct'])}",
             "latitude": lat,
             "longitude": lng,
             "service_type": service_type,
@@ -243,12 +253,43 @@ def generate_demo_jobs(city_key: str, count: int = 50) -> List[Dict]:
             "priority": random.choice([0, 0, 0, 1, 1, 2]),
             "notes": f"{service_type} service request",
             "status": "pending",
+            "scheduled_date": scheduled_date,
             "assigned_technician_id": None,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         jobs.append(job)
     
     return jobs
+
+def generate_weekly_jobs(city_key: str, jobs_per_day: int = 8) -> Dict[str, List[Dict]]:
+    """Generate demo jobs for a full week (Monday to Sunday)"""
+    from datetime import timedelta
+    
+    # Get the start of the current week (Monday)
+    today = datetime.now(timezone.utc)
+    days_since_monday = today.weekday()
+    monday = today - timedelta(days=days_since_monday)
+    
+    weekly_jobs = {}
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    for day_offset in range(7):
+        current_day = monday + timedelta(days=day_offset)
+        date_str = current_day.strftime("%Y-%m-%d")
+        day_name = day_names[day_offset]
+        
+        # Generate fewer jobs on weekends
+        day_job_count = jobs_per_day if day_offset < 5 else max(3, jobs_per_day // 2)
+        
+        jobs = generate_demo_jobs(city_key, day_job_count, date_str)
+        weekly_jobs[date_str] = {
+            "date": date_str,
+            "day_name": day_name,
+            "jobs": jobs,
+            "job_count": len(jobs)
+        }
+    
+    return weekly_jobs
 
 # ==================== API ENDPOINTS ====================
 
