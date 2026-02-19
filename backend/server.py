@@ -530,25 +530,29 @@ async def update_job_status(job_id: str, status: str):
 
 # Routes endpoints
 @api_router.get("/routes")
-async def get_routes(city: Optional[str] = None):
+async def get_routes(city: Optional[str] = None, date: Optional[str] = None):
     query = {}
     if city:
         query["technician_id"] = {"$regex": f"^tech_{city}_"}
+    if date:
+        query["scheduled_date"] = date
     routes = await db.routes.find(query, {"_id": 0}).to_list(100)
     return routes
 
 @api_router.delete("/routes")
-async def clear_routes(city: Optional[str] = None):
+async def clear_routes(city: Optional[str] = None, date: Optional[str] = None):
     query = {}
     if city:
         query["technician_id"] = {"$regex": f"^tech_{city}_"}
+    if date:
+        query["scheduled_date"] = date
     result = await db.routes.delete_many(query)
     return {"message": f"Deleted {result.deleted_count} routes"}
 
 # Optimization endpoints
 @api_router.post("/optimize")
-async def run_optimization(city: str = "chicago"):
-    """Run route optimization using Nextbillion API"""
+async def run_optimization(city: str = "chicago", date: Optional[str] = None):
+    """Run route optimization using Nextbillion API for a specific date"""
     settings = await db.settings.find_one({"id": "app_settings"}, {"_id": 0})
     api_key = settings.get("nextbillion_api_key") if settings else None
     
