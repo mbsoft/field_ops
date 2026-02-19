@@ -92,6 +92,7 @@ class Route(BaseModel):
     total_duration: int  # in seconds
     total_service_time: int  # in seconds
     geometry: Optional[str] = None
+    scheduled_date: Optional[str] = None  # YYYY-MM-DD format
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class OptimizationRun(BaseModel):
