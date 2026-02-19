@@ -715,6 +715,10 @@ async def get_optimization_result(request_id: str):
             
             result = response.json()
             
+            # Get the optimization run to find the scheduled_date
+            opt_run = await db.optimization_runs.find_one({"request_id": request_id}, {"_id": 0})
+            scheduled_date = opt_run.get("scheduled_date") if opt_run else None
+            
             # Process result and update database
             if result.get("status") == "Ok" and result.get("result"):
                 opt_result = result["result"]
@@ -722,8 +726,11 @@ async def get_optimization_result(request_id: str):
                 routes_data = opt_result.get("routes", [])
                 unassigned = opt_result.get("unassigned", [])
                 
-                # Clear existing routes
-                await db.routes.delete_many({})
+                # Clear existing routes for this date only
+                if scheduled_date:
+                    await db.routes.delete_many({"scheduled_date": scheduled_date})
+                else:
+                    await db.routes.delete_many({"scheduled_date": None})
                 
                 # Get jobs mapping
                 jobs = await db.jobs.find({}, {"_id": 0}).to_list(500)
@@ -768,6 +775,7 @@ async def get_optimization_result(request_id: str):
                             "steps": steps,
                             "total_distance": route_data.get("distance", 0),
                             "total_duration": route_data.get("duration", 0),
+                            "scheduled_date": scheduled_date,  # Add the date to the route
                             "total_service_time": route_data.get("service", 0),
                             "geometry": route_data.get("geometry"),
                             "created_at": datetime.now(timezone.utc).isoformat()
