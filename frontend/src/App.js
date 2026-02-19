@@ -1052,6 +1052,311 @@ const RoutesPage = ({ routes, apiKey, selectedCity, cities }) => {
   );
 };
 
+// Weekly Planning Page
+const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) => {
+  const [weekSummary, setWeekSummary] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [dayJobs, setDayJobs] = useState([]);
+  const [dayRoutes, setDayRoutes] = useState([]);
+  const [optimizing, setOptimizing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  const fetchWeeklySummary = async () => {
+    try {
+      const response = await axios.get(`${API}/jobs/weekly-summary?city=${selectedCity}`);
+      setWeekSummary(response.data);
+      
+      // Auto-select today or first day with jobs
+      const today = response.data.find(d => d.is_today);
+      const firstWithJobs = response.data.find(d => d.job_count > 0);
+      if (today && today.job_count > 0) {
+        setSelectedDate(today.date);
+      } else if (firstWithJobs) {
+        setSelectedDate(firstWithJobs.date);
+      }
+    } catch (error) {
+      console.error('Failed to fetch weekly summary:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const fetchDayData = async (date) => {
+    if (!date) return;
+    try {
+      const [jobsRes, routesRes] = await Promise.all([
+        axios.get(`${API}/jobs/by-date?city=${selectedCity}&date=${date}`),
+        axios.get(`${API}/routes?city=${selectedCity}&date=${date}`)
+      ]);
+      setDayJobs(jobsRes.data);
+      setDayRoutes(routesRes.data);
+    } catch (error) {
+      console.error('Failed to fetch day data:', error);
+    }
+  };
+  
+  useEffect(() => {
+    fetchWeeklySummary();
+  }, [selectedCity]);
+  
+  useEffect(() => {
+    if (selectedDate) {
+      fetchDayData(selectedDate);
+    }
+  }, [selectedDate, selectedCity]);
+  
+  const handleOptimizeDay = async () => {
+    if (!selectedDate || !apiKey) return;
+    
+    setOptimizing(true);
+    try {
+      const response = await axios.post(`${API}/optimize?city=${selectedCity}&date=${selectedDate}`);
+      toast.success(`Optimization submitted for ${selectedDate}`);
+      
+      // Poll for result
+      const requestId = response.data.request_id;
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      const pollResult = async () => {
+        try {
+          const resultRes = await axios.get(`${API}/optimize/result/${requestId}`);
+          if (resultRes.data.status === 'Ok') {
+            toast.success('Routes optimized!');
+            await fetchWeeklySummary();
+            await fetchDayData(selectedDate);
+            return true;
+          }
+          return false;
+        } catch (e) {
+          return false;
+        }
+      };
+      
+      const poll = setInterval(async () => {
+        attempts++;
+        const done = await pollResult();
+        if (done || attempts >= maxAttempts) {
+          clearInterval(poll);
+          setOptimizing(false);
+          if (attempts >= maxAttempts) {
+            toast.info('Optimization still processing. Please click Fetch Result.');
+          }
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Optimization failed:', error);
+      toast.error(error.response?.data?.detail || 'Optimization failed');
+      setOptimizing(false);
+    }
+  };
+  
+  const selectedDayData = weekSummary.find(d => d.date === selectedDate);
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-6" data-testid="weekly-plan-page">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>
+            Weekly Planning
+          </h2>
+          <p className="text-muted-foreground">
+            Plan and optimize routes for the entire week
+          </p>
+        </div>
+        <Button onClick={onGenerateWeekly} disabled={generating} data-testid="generate-weekly-btn">
+          {generating ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Calendar className="w-4 h-4 mr-2" />
+          )}
+          Generate Weekly Data
+        </Button>
+      </div>
+      
+      {/* Week Calendar Strip */}
+      <div className="grid grid-cols-7 gap-2">
+        {weekSummary.map((day) => (
+          <button
+            key={day.date}
+            onClick={() => setSelectedDate(day.date)}
+            className={`p-4 rounded-lg border transition-all ${
+              selectedDate === day.date 
+                ? 'border-primary bg-primary/5 ring-2 ring-primary/20' 
+                : day.is_today
+                ? 'border-amber-400 bg-amber-50'
+                : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50'
+            } ${day.is_weekend ? 'bg-muted/30' : ''}`}
+            data-testid={`day-${day.date}`}
+          >
+            <div className="text-xs text-muted-foreground mb-1">{day.day_name.slice(0, 3)}</div>
+            <div className="text-lg font-bold">{day.date.split('-')[2]}</div>
+            <div className="mt-2 space-y-1">
+              <div className="flex items-center justify-center gap-1">
+                <Briefcase className="w-3 h-3 text-muted-foreground" />
+                <span className="text-sm font-medium">{day.job_count}</span>
+              </div>
+              {day.route_count > 0 && (
+                <div className="flex items-center justify-center gap-1">
+                  <RouteIcon className="w-3 h-3 text-green-600" />
+                  <span className="text-sm text-green-600">{day.route_count}</span>
+                </div>
+              )}
+            </div>
+            {day.is_today && (
+              <Badge className="mt-2 text-xs" variant="outline">Today</Badge>
+            )}
+          </button>
+        ))}
+      </div>
+      
+      {/* Selected Day Details */}
+      {selectedDate && selectedDayData && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Day Summary */}
+          <div className="bento-card">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">{selectedDayData.day_name}</h3>
+              <span className="text-sm text-muted-foreground">{selectedDate}</span>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <span className="text-muted-foreground">Total Jobs</span>
+                <span className="font-bold text-lg">{selectedDayData.job_count}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
+                <span className="text-amber-700">Pending</span>
+                <span className="font-bold text-lg text-amber-700">{selectedDayData.pending_jobs}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <span className="text-green-700">Assigned</span>
+                <span className="font-bold text-lg text-green-700">{selectedDayData.assigned_jobs}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                <span className="text-blue-700">Routes</span>
+                <span className="font-bold text-lg text-blue-700">{selectedDayData.route_count}</span>
+              </div>
+            </div>
+            
+            <Button 
+              className="w-full mt-4" 
+              onClick={handleOptimizeDay}
+              disabled={optimizing || !apiKey || selectedDayData.pending_jobs === 0}
+              data-testid="optimize-day-btn"
+            >
+              {optimizing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Zap className="w-4 h-4 mr-2" />
+              )}
+              Optimize {selectedDayData.day_name}
+            </Button>
+            
+            {!apiKey && (
+              <p className="text-xs text-muted-foreground mt-2 text-center">
+                Configure API key in Settings first
+              </p>
+            )}
+          </div>
+          
+          {/* Day's Routes/Manifest */}
+          <div className="lg:col-span-2 bento-card">
+            <h3 className="font-semibold mb-4">
+              {dayRoutes.length > 0 ? 'Route Manifest' : 'Pending Jobs'}
+            </h3>
+            
+            <ScrollArea className="h-[400px]">
+              {dayRoutes.length > 0 ? (
+                <div className="space-y-4">
+                  {dayRoutes.map((route, index) => (
+                    <div key={route.id} className="border rounded-lg p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div 
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                          style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
+                        >
+                          {route.steps?.length || 0}
+                        </div>
+                        <div>
+                          <p className="font-semibold">{route.technician_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(route.total_distance / 1000).toFixed(1)} km • {Math.round(route.total_duration / 60)} min
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2 pl-2 border-l-2" style={{ borderColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}>
+                        {route.steps?.map((step, stepIdx) => (
+                          <div key={stepIdx} className="flex items-start gap-3 py-2">
+                            <div 
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                              style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
+                            >
+                              {stepIdx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm">{step.customer_name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{step.address}</p>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(step.arrival_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <Badge variant="outline" className="text-xs">{step.service_type}</Badge>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : dayJobs.length > 0 ? (
+                <div className="space-y-2">
+                  {dayJobs.map((job, index) => (
+                    <div key={job.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                      <div 
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                        style={{ backgroundColor: SKILL_COLORS[job.skill_required]?.hex || '#6b7280' }}
+                      >
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{job.customer_name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{job.address}</p>
+                      </div>
+                      <Badge variant="outline">{job.service_type}</Badge>
+                      <span className={`status-badge status-${job.status}`}>
+                        {job.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No jobs scheduled for this day</p>
+                  <p className="text-sm">Click "Generate Weekly Data" to create demo jobs</p>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Technicians Page
 const TechniciansPage = ({ technicians, onRefresh, refreshing, selectedCity, onToggleAvailability }) => {
   return (
