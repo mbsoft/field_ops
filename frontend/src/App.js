@@ -1766,6 +1766,7 @@ function App() {
   const [lastRequestId, setLastRequestId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [generatingWeekly, setGeneratingWeekly] = useState(false);
 
   // Fetch initial data
   const fetchData = useCallback(async () => {
@@ -1815,6 +1816,20 @@ function App() {
       setRoutes(routesRes.data);
     } catch (error) {
       console.error('Failed to fetch city data:', error);
+    }
+  };
+  
+  const handleGenerateWeekly = async () => {
+    setGeneratingWeekly(true);
+    try {
+      await axios.post(`${API}/jobs/generate-weekly?city=${selectedCity}&jobs_per_day=8`);
+      toast.success('Weekly data generated successfully!');
+      await fetchCityData(selectedCity);
+    } catch (error) {
+      console.error('Failed to generate weekly data:', error);
+      toast.error('Failed to generate weekly data');
+    } finally {
+      setGeneratingWeekly(false);
     }
   };
 
