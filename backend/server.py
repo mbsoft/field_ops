@@ -573,14 +573,15 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
     if not technicians:
         raise HTTPException(status_code=400, detail="No available technicians")
     
-    # Get pending jobs
-    jobs = await db.jobs.find(
-        {"id": {"$regex": f"^job_{city}_"}, "status": "pending"}, 
-        {"_id": 0}
-    ).to_list(500)
+    # Get pending jobs - filter by date if provided
+    job_query = {"id": {"$regex": f"^job_{city}_"}, "status": "pending"}
+    if date:
+        job_query["scheduled_date"] = date
+    
+    jobs = await db.jobs.find(job_query, {"_id": 0}).to_list(500)
     
     if not jobs:
-        raise HTTPException(status_code=400, detail="No pending jobs to optimize")
+        raise HTTPException(status_code=400, detail=f"No pending jobs to optimize{' for ' + date if date else ''}")
     
     # Build optimization request
     depot = city_data["depot"]
@@ -602,10 +603,14 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
             "time_windows": [[job["time_window_start"], job["time_window_end"]]]
         })
     
-    # Build vehicles array
-    now = int(datetime.now(timezone.utc).timestamp())
-    day_start = now - (now % 86400) + 25200  # 7 AM UTC
-    day_end = day_start + 28800  # 8 hours shift
+    # Build vehicles array - use date-specific time windows
+    if date:
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        day_start = int(date_obj.replace(hour=7, minute=0, second=0).timestamp())
+    else:
+        now = int(datetime.now(timezone.utc).timestamp())
+        day_start = now - (now % 86400) + 25200  # 7 AM UTC
+    day_end = day_start + 36000  # 10 hours shift
     
     api_vehicles = []
     for tech in technicians:
