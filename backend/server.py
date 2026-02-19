@@ -61,12 +61,14 @@ class JobBase(BaseModel):
     time_window_end: Optional[int] = None  # unix timestamp
     priority: int = 0
     notes: Optional[str] = None
+    scheduled_date: Optional[str] = None  # YYYY-MM-DD format for weekly planning
 
 class Job(JobBase):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: str = "pending"  # pending, assigned, in_progress, completed, unassigned
     assigned_technician_id: Optional[str] = None
+    scheduled_date: Optional[str] = None  # YYYY-MM-DD format
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RouteStep(BaseModel):
