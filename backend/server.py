@@ -609,6 +609,18 @@ async def get_weekly_summary(city: str = "chicago"):
             "status": "assigned"
         })
         
+        # Count available technicians for this date
+        available_technicians = await db.technician_availability.count_documents({
+            "id": {"$regex": f"^avail_{city}_"},
+            "date": date_str,
+            "is_available": True
+        })
+        
+        total_technicians = await db.technician_availability.count_documents({
+            "id": {"$regex": f"^avail_{city}_"},
+            "date": date_str
+        })
+        
         summary.append({
             "date": date_str,
             "day_name": day_names[day_offset],
@@ -618,7 +630,9 @@ async def get_weekly_summary(city: str = "chicago"):
             "job_count": job_count,
             "route_count": route_count,
             "pending_jobs": pending,
-            "assigned_jobs": assigned
+            "assigned_jobs": assigned,
+            "available_technicians": available_technicians,
+            "total_technicians": total_technicians
         })
     
     return summary
