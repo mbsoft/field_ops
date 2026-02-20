@@ -779,11 +779,48 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
     
     city_data = GLOBAL_CITIES[city]
     
-    # Get available technicians
-    technicians = await db.technicians.find(
-        {"id": {"$regex": f"^tech_{city}_"}, "available": True}, 
-        {"_id": 0}
-    ).to_list(50)
+    # Get available technicians - use date-specific availability if date provided
+    if date:
+        # Get technicians available on this specific date with their time windows
+        availability_records = await db.technician_availability.find(
+            {
+                "date": date, 
+                "id": {"$regex": f"^avail_{city}_"},
+                "is_available": True
+            },
+            {"_id": 0}
+        ).to_list(100)
+        
+        if not availability_records:
+            raise HTTPException(status_code=400, detail=f"No technicians available for {date}")
+        
+        # Get full technician data and merge with availability
+        tech_ids = [a["technician_id"] for a in availability_records]
+        technicians_data = await db.technicians.find(
+            {"id": {"$in": tech_ids}},
+            {"_id": 0}
+        ).to_list(100)
+        
+        # Create a map for quick lookup
+        tech_map = {t["id"]: t for t in technicians_data}
+        
+        # Build technicians list with date-specific time windows
+        technicians = []
+        for avail in availability_records:
+            tech_data = tech_map.get(avail["technician_id"])
+            if tech_data:
+                technicians.append({
+                    **tech_data,
+                    "shift_start": avail["shift_start"],
+                    "shift_end": avail["shift_end"],
+                    "shift_name": avail.get("shift_name", "Standard Shift")
+                })
+    else:
+        # Fall back to general availability (no date specified)
+        technicians = await db.technicians.find(
+            {"id": {"$regex": f"^tech_{city}_"}, "available": True}, 
+            {"_id": 0}
+        ).to_list(50)
     
     if not technicians:
         raise HTTPException(status_code=400, detail="No available technicians")
@@ -818,23 +855,28 @@ async def run_optimization(city: str = "chicago", date: Optional[str] = None):
             "time_windows": [[job["time_window_start"], job["time_window_end"]]]
         })
     
-    # Build vehicles array - use date-specific time windows
-    if date:
-        date_obj = datetime.strptime(date, "%Y-%m-%d")
-        day_start = int(date_obj.replace(hour=7, minute=0, second=0).timestamp())
-    else:
-        now = int(datetime.now(timezone.utc).timestamp())
-        day_start = now - (now % 86400) + 25200  # 7 AM UTC
-    day_end = day_start + 36000  # 10 hours shift
-    
+    # Build vehicles array - use technician-specific time windows
     api_vehicles = []
     for tech in technicians:
+        # Use date-specific shift times if available, otherwise default
+        if "shift_start" in tech and "shift_end" in tech:
+            shift_start = tech["shift_start"]
+            shift_end = tech["shift_end"]
+        elif date:
+            date_obj = datetime.strptime(date, "%Y-%m-%d")
+            shift_start = int(date_obj.replace(hour=7, minute=0, second=0).timestamp())
+            shift_end = int(date_obj.replace(hour=17, minute=0, second=0).timestamp())
+        else:
+            now = int(datetime.now(timezone.utc).timestamp())
+            shift_start = now - (now % 86400) + 25200  # 7 AM UTC
+            shift_end = shift_start + 36000  # 10 hours shift
+        
         api_vehicles.append({
             "id": tech["id"],
             "description": tech["skill"],
             "start_index": 0,
             "end_index": 0,
-            "time_window": [day_start, day_end],
+            "time_window": [shift_start, shift_end],
             "capacity": [500],
             "skills": [tech["skill_id"]],
             "costs": {"fixed": 3600},
