@@ -117,6 +117,19 @@ class Settings(BaseModel):
     selected_city: str = "chicago"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class TechnicianAvailability(BaseModel):
+    """Represents a technician's availability for a specific date"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    technician_id: str
+    technician_name: str
+    date: str  # YYYY-MM-DD format
+    is_available: bool = True
+    shift_start: int  # Unix timestamp for shift start
+    shift_end: int  # Unix timestamp for shift end
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # ==================== DEMO DATA ====================
 
 # Bounding boxes adjusted to exclude water bodies
