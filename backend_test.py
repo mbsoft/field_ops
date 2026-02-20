@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 class FieldServiceAPITester:
-    def __init__(self, base_url="https://service-dispatch-hub-2.preview.emergentagent.com"):
+    def __init__(self, base_url="https://fleet-optimization.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.tests_run = 0
