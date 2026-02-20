@@ -304,6 +304,78 @@ def generate_weekly_jobs(city_key: str, jobs_per_day: int = 8) -> Dict[str, List
     
     return weekly_jobs
 
+def generate_technician_availability(city_key: str, technicians: List[Dict]) -> Dict[str, List[Dict]]:
+    """Generate technician availability for a full week (Monday to Sunday)"""
+    from datetime import timedelta
+    
+    today = datetime.now(timezone.utc)
+    days_since_monday = today.weekday()
+    monday = today - timedelta(days=days_since_monday)
+    
+    weekly_availability = {}
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    # Define some shift patterns for variety
+    shift_patterns = [
+        {"start_hour": 7, "end_hour": 15, "name": "Early Shift"},
+        {"start_hour": 9, "end_hour": 17, "name": "Day Shift"},
+        {"start_hour": 10, "end_hour": 18, "name": "Late Shift"},
+        {"start_hour": 8, "end_hour": 16, "name": "Standard Shift"},
+    ]
+    
+    for day_offset in range(7):
+        current_day = monday + timedelta(days=day_offset)
+        date_str = current_day.strftime("%Y-%m-%d")
+        day_name = day_names[day_offset]
+        is_weekend = day_offset >= 5
+        
+        day_availability = []
+        
+        for tech_idx, tech in enumerate(technicians):
+            # On weekends, only ~30% of technicians work
+            # On weekdays, ~90% of technicians work
+            if is_weekend:
+                is_available = random.random() < 0.3
+            else:
+                is_available = random.random() < 0.9
+            
+            # Assign a shift pattern based on technician index and day
+            pattern_idx = (tech_idx + day_offset) % len(shift_patterns)
+            shift = shift_patterns[pattern_idx]
+            
+            # Calculate shift timestamps for this specific date
+            shift_start = int(current_day.replace(
+                hour=shift["start_hour"], minute=0, second=0
+            ).timestamp())
+            shift_end = int(current_day.replace(
+                hour=shift["end_hour"], minute=0, second=0
+            ).timestamp())
+            
+            availability = {
+                "id": f"avail_{city_key}_{tech['id']}_{date_str}",
+                "technician_id": tech["id"],
+                "technician_name": tech["name"],
+                "date": date_str,
+                "day_name": day_name,
+                "is_available": is_available,
+                "shift_start": shift_start,
+                "shift_end": shift_end,
+                "shift_name": shift["name"],
+                "notes": f"{shift['name']} ({shift['start_hour']:02d}:00 - {shift['end_hour']:02d}:00)" if is_available else "Day off",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            day_availability.append(availability)
+        
+        weekly_availability[date_str] = {
+            "date": date_str,
+            "day_name": day_name,
+            "is_weekend": is_weekend,
+            "availability": day_availability,
+            "available_count": sum(1 for a in day_availability if a["is_available"])
+        }
+    
+    return weekly_availability
+
 # ==================== API ENDPOINTS ====================
 
 @api_router.get("/")
