@@ -1058,8 +1058,10 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
   const [selectedDate, setSelectedDate] = useState(null);
   const [dayJobs, setDayJobs] = useState([]);
   const [dayRoutes, setDayRoutes] = useState([]);
+  const [dayAvailability, setDayAvailability] = useState([]);
   const [optimizing, setOptimizing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("schedule");
   
   const fetchWeeklySummary = async () => {
     try {
@@ -1073,6 +1075,8 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
         setSelectedDate(today.date);
       } else if (firstWithJobs) {
         setSelectedDate(firstWithJobs.date);
+      } else if (response.data.length > 0) {
+        setSelectedDate(response.data[0].date);
       }
     } catch (error) {
       console.error('Failed to fetch weekly summary:', error);
@@ -1084,12 +1088,14 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
   const fetchDayData = async (date) => {
     if (!date) return;
     try {
-      const [jobsRes, routesRes] = await Promise.all([
+      const [jobsRes, routesRes, availRes] = await Promise.all([
         axios.get(`${API}/jobs/by-date?city=${selectedCity}&date=${date}`),
-        axios.get(`${API}/routes?city=${selectedCity}&date=${date}`)
+        axios.get(`${API}/routes?city=${selectedCity}&date=${date}`),
+        axios.get(`${API}/technicians/availability/by-date/${date}?city=${selectedCity}`)
       ]);
       setDayJobs(jobsRes.data);
       setDayRoutes(routesRes.data);
+      setDayAvailability(availRes.data.availability || []);
     } catch (error) {
       console.error('Failed to fetch day data:', error);
     }
@@ -1152,7 +1158,21 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
     }
   };
   
+  const toggleAvailability = async (availabilityId, currentStatus) => {
+    try {
+      await axios.put(`${API}/technicians/availability/${availabilityId}?is_available=${!currentStatus}`);
+      toast.success('Availability updated');
+      await fetchDayData(selectedDate);
+      await fetchWeeklySummary();
+    } catch (error) {
+      console.error('Failed to update availability:', error);
+      toast.error('Failed to update availability');
+    }
+  };
+  
   const selectedDayData = weekSummary.find(d => d.date === selectedDate);
+  const availableTechs = dayAvailability.filter(a => a.is_available);
+  const unavailableTechs = dayAvailability.filter(a => !a.is_available);
   
   if (loading) {
     return (
@@ -1205,6 +1225,10 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
                 <Briefcase className="w-3 h-3 text-muted-foreground" />
                 <span className="text-sm font-medium">{day.job_count}</span>
               </div>
+              <div className="flex items-center justify-center gap-1">
+                <Users className="w-3 h-3 text-blue-500" />
+                <span className="text-sm text-blue-600">{day.available_technicians || 0}</span>
+              </div>
               {day.route_count > 0 && (
                 <div className="flex items-center justify-center gap-1">
                   <RouteIcon className="w-3 h-3 text-green-600" />
@@ -1221,7 +1245,7 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
       
       {/* Selected Day Details */}
       {selectedDate && selectedDayData && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Day Summary */}
           <div className="bento-card">
             <div className="flex items-center justify-between mb-4">
@@ -1229,10 +1253,22 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
               <span className="text-sm text-muted-foreground">{selectedDate}</span>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                <span className="text-muted-foreground">Total Jobs</span>
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Briefcase className="w-4 h-4" />
+                  Jobs
+                </span>
                 <span className="font-bold text-lg">{selectedDayData.job_count}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                <span className="text-blue-700 flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Technicians
+                </span>
+                <span className="font-bold text-lg text-blue-700">
+                  {selectedDayData.available_technicians || availableTechs.length}/{selectedDayData.total_technicians || dayAvailability.length}
+                </span>
               </div>
               <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
                 <span className="text-amber-700">Pending</span>
@@ -1242,16 +1278,21 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
                 <span className="text-green-700">Assigned</span>
                 <span className="font-bold text-lg text-green-700">{selectedDayData.assigned_jobs}</span>
               </div>
-              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                <span className="text-blue-700">Routes</span>
-                <span className="font-bold text-lg text-blue-700">{selectedDayData.route_count}</span>
-              </div>
+              {selectedDayData.route_count > 0 && (
+                <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                  <span className="text-purple-700 flex items-center gap-2">
+                    <RouteIcon className="w-4 h-4" />
+                    Routes
+                  </span>
+                  <span className="font-bold text-lg text-purple-700">{selectedDayData.route_count}</span>
+                </div>
+              )}
             </div>
             
             <Button 
               className="w-full mt-4" 
               onClick={handleOptimizeDay}
-              disabled={optimizing || !apiKey || selectedDayData.pending_jobs === 0}
+              disabled={optimizing || !apiKey || selectedDayData.pending_jobs === 0 || availableTechs.length === 0}
               data-testid="optimize-day-btn"
             >
               {optimizing ? (
@@ -1267,89 +1308,191 @@ const WeeklyPlanPage = ({ selectedCity, apiKey, onGenerateWeekly, generating }) 
                 Configure API key in Settings first
               </p>
             )}
+            {availableTechs.length === 0 && dayAvailability.length > 0 && (
+              <p className="text-xs text-amber-600 mt-2 text-center">
+                No technicians available this day
+              </p>
+            )}
           </div>
           
-          {/* Day's Routes/Manifest */}
-          <div className="lg:col-span-2 bento-card">
-            <h3 className="font-semibold mb-4">
-              {dayRoutes.length > 0 ? 'Route Manifest' : 'Pending Jobs'}
-            </h3>
-            
-            <ScrollArea className="h-[400px]">
-              {dayRoutes.length > 0 ? (
-                <div className="space-y-4">
-                  {dayRoutes.map((route, index) => (
-                    <div key={route.id} className="border rounded-lg p-4">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div 
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                          style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
-                        >
-                          {route.steps?.length || 0}
-                        </div>
-                        <div>
-                          <p className="font-semibold">{route.technician_name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {(route.total_distance / 1000).toFixed(1)} km • {Math.round(route.total_duration / 60)} min
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2 pl-2 border-l-2" style={{ borderColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}>
-                        {route.steps?.map((step, stepIdx) => (
-                          <div key={stepIdx} className="flex items-start gap-3 py-2">
+          {/* Main Content Area */}
+          <div className="lg:col-span-3 bento-card">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="schedule" data-testid="tab-schedule">
+                  {dayRoutes.length > 0 ? 'Route Manifest' : 'Jobs'}
+                </TabsTrigger>
+                <TabsTrigger value="technicians" data-testid="tab-technicians">
+                  Technicians ({availableTechs.length}/{dayAvailability.length})
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="schedule">
+                <ScrollArea className="h-[450px]">
+                  {dayRoutes.length > 0 ? (
+                    <div className="space-y-4">
+                      {dayRoutes.map((route, index) => (
+                        <div key={route.id} className="border rounded-lg p-4">
+                          <div className="flex items-center gap-3 mb-3">
                             <div 
-                              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                              className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
                               style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
                             >
-                              {stepIdx + 1}
+                              {route.steps?.length || 0}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-sm">{step.customer_name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{step.address}</p>
-                              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {new Date(step.arrival_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                                <Badge variant="outline" className="text-xs">{step.service_type}</Badge>
-                              </div>
+                            <div className="flex-1">
+                              <p className="font-semibold">{route.technician_name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(route.total_distance / 1000).toFixed(1)} km • {Math.round(route.total_duration / 60)} min
+                              </p>
                             </div>
+                            {/* Find technician's shift for this route */}
+                            {(() => {
+                              const techAvail = dayAvailability.find(a => a.technician_id === route.technician_id);
+                              if (techAvail) {
+                                return (
+                                  <Badge variant="outline" className="text-xs">
+                                    {techAvail.shift_name || 'Standard Shift'}
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
-                        ))}
-                      </div>
+                          
+                          <div className="space-y-2 pl-2 border-l-2" style={{ borderColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}>
+                            {route.steps?.map((step, stepIdx) => (
+                              <div key={stepIdx} className="flex items-start gap-3 py-2">
+                                <div 
+                                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                  style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }}
+                                >
+                                  {stepIdx + 1}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm">{step.customer_name}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{step.address}</p>
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {new Date(step.arrival_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs">{step.service_type}</Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : dayJobs.length > 0 ? (
-                <div className="space-y-2">
-                  {dayJobs.map((job, index) => (
-                    <div key={job.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                      <div 
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                        style={{ backgroundColor: SKILL_COLORS[job.skill_required]?.hex || '#6b7280' }}
-                      >
-                        {index + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{job.customer_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{job.address}</p>
-                      </div>
-                      <Badge variant="outline">{job.service_type}</Badge>
-                      <span className={`status-badge status-${job.status}`}>
-                        {job.status}
-                      </span>
+                  ) : dayJobs.length > 0 ? (
+                    <div className="space-y-2">
+                      {dayJobs.map((job, index) => (
+                        <div key={job.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                            style={{ backgroundColor: SKILL_COLORS[job.skill_required]?.hex || '#6b7280' }}
+                          >
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm">{job.customer_name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{job.address}</p>
+                          </div>
+                          <Badge variant="outline">{job.service_type}</Badge>
+                          <span className={`status-badge status-${job.status}`}>
+                            {job.status}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No jobs scheduled for this day</p>
-                  <p className="text-sm">Click "Generate Weekly Data" to create demo jobs</p>
-                </div>
-              )}
-            </ScrollArea>
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>No jobs scheduled for this day</p>
+                      <p className="text-sm">Click "Generate Weekly Data" to create demo jobs</p>
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+              
+              <TabsContent value="technicians">
+                <ScrollArea className="h-[450px]">
+                  <div className="space-y-4">
+                    {/* Available Technicians */}
+                    {availableTechs.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-sm text-green-700 mb-3 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Available ({availableTechs.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {availableTechs.map((tech) => (
+                            <div key={tech.id} className="flex items-center gap-3 p-3 border border-green-200 bg-green-50/50 rounded-lg">
+                              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                                <Users className="w-5 h-5 text-green-600" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{tech.technician_name}</p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{tech.shift_name || 'Standard Shift'}</span>
+                                  <span className="text-green-600">
+                                    {new Date(tech.shift_start * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(tech.shift_end * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              </div>
+                              <Switch 
+                                checked={tech.is_available}
+                                onCheckedChange={() => toggleAvailability(tech.id, tech.is_available)}
+                                data-testid={`avail-toggle-${tech.id}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Unavailable Technicians */}
+                    {unavailableTechs.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-sm text-muted-foreground mb-3 flex items-center gap-2">
+                          <X className="w-4 h-4" />
+                          Day Off ({unavailableTechs.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {unavailableTechs.map((tech) => (
+                            <div key={tech.id} className="flex items-center gap-3 p-3 border border-muted bg-muted/30 rounded-lg opacity-70">
+                              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                                <Users className="w-5 h-5 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{tech.technician_name}</p>
+                                <p className="text-xs text-muted-foreground">{tech.notes || 'Day off'}</p>
+                              </div>
+                              <Switch 
+                                checked={tech.is_available}
+                                onCheckedChange={() => toggleAvailability(tech.id, tech.is_available)}
+                                data-testid={`avail-toggle-${tech.id}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {dayAvailability.length === 0 && (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p>No technician schedules for this day</p>
+                        <p className="text-sm">Click "Generate Weekly Data" to create schedules</p>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       )}
