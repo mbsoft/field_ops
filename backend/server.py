@@ -449,6 +449,106 @@ async def update_technician_availability(technician_id: str, available: bool):
         raise HTTPException(status_code=404, detail="Technician not found")
     return {"message": "Updated", "id": technician_id, "available": available}
 
+# Technician Availability (Date-specific) endpoints
+@api_router.get("/technicians/availability")
+async def get_technician_availability(city: str = "chicago", date: Optional[str] = None):
+    """Get technician availability - optionally filtered by date"""
+    query = {"id": {"$regex": f"^avail_{city}_"}}
+    if date:
+        query["date"] = date
+    availability = await db.technician_availability.find(query, {"_id": 0}).to_list(500)
+    return availability
+
+@api_router.get("/technicians/availability/by-date/{date}")
+async def get_availability_by_date(date: str, city: str = "chicago"):
+    """Get all technicians' availability for a specific date"""
+    availability = await db.technician_availability.find(
+        {"date": date, "id": {"$regex": f"^avail_{city}_"}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Include summary stats
+    available_count = sum(1 for a in availability if a.get("is_available"))
+    
+    return {
+        "date": date,
+        "city": city,
+        "total_technicians": len(availability),
+        "available_count": available_count,
+        "unavailable_count": len(availability) - available_count,
+        "availability": availability
+    }
+
+@api_router.put("/technicians/availability/{availability_id}")
+async def update_date_availability(
+    availability_id: str,
+    is_available: Optional[bool] = None,
+    shift_start: Optional[int] = None,
+    shift_end: Optional[int] = None,
+    notes: Optional[str] = None
+):
+    """Update a technician's availability for a specific date"""
+    update_data = {}
+    if is_available is not None:
+        update_data["is_available"] = is_available
+    if shift_start is not None:
+        update_data["shift_start"] = shift_start
+    if shift_end is not None:
+        update_data["shift_end"] = shift_end
+    if notes is not None:
+        update_data["notes"] = notes
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
+    result = await db.technician_availability.update_one(
+        {"id": availability_id},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Availability record not found")
+    
+    # Return updated record
+    updated = await db.technician_availability.find_one({"id": availability_id}, {"_id": 0})
+    return updated
+
+@api_router.get("/technicians/weekly-availability")
+async def get_weekly_availability(city: str = "chicago"):
+    """Get a summary of technician availability for the entire week"""
+    from datetime import timedelta
+    
+    today = datetime.now(timezone.utc)
+    days_since_monday = today.weekday()
+    monday = today - timedelta(days=days_since_monday)
+    
+    weekly_summary = []
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    for day_offset in range(7):
+        current_day = monday + timedelta(days=day_offset)
+        date_str = current_day.strftime("%Y-%m-%d")
+        
+        # Get availability for this date
+        availability = await db.technician_availability.find(
+            {"date": date_str, "id": {"$regex": f"^avail_{city}_"}},
+            {"_id": 0}
+        ).to_list(100)
+        
+        available_techs = [a for a in availability if a.get("is_available")]
+        
+        weekly_summary.append({
+            "date": date_str,
+            "day_name": day_names[day_offset],
+            "day_offset": day_offset,
+            "is_today": day_offset == days_since_monday,
+            "is_weekend": day_offset >= 5,
+            "total_technicians": len(availability),
+            "available_count": len(available_techs),
+            "technicians": availability
+        })
+    
+    return weekly_summary
+
 # Jobs endpoints
 @api_router.get("/jobs")
 async def get_jobs(city: Optional[str] = None, status: Optional[str] = None):
