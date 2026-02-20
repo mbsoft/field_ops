@@ -549,7 +549,7 @@ async def generate_jobs(city: str = "chicago", count: int = 50, date: Optional[s
 
 @api_router.post("/jobs/generate-weekly")
 async def generate_weekly_jobs_endpoint(city: str = "chicago", jobs_per_day: int = 8):
-    """Generate jobs for an entire week"""
+    """Generate jobs and technician availability for an entire week"""
     if city not in GLOBAL_CITIES:
         raise HTTPException(status_code=400, detail="Invalid city")
     
@@ -558,6 +558,21 @@ async def generate_weekly_jobs_endpoint(city: str = "chicago", jobs_per_day: int
     
     # Clear existing routes
     await db.routes.delete_many({"technician_id": {"$regex": f"^tech_{city}_"}})
+    
+    # Clear existing availability
+    await db.technician_availability.delete_many({"id": {"$regex": f"^avail_{city}_"}})
+    
+    # Ensure technicians exist
+    technicians = await db.technicians.find(
+        {"id": {"$regex": f"^tech_{city}_"}}, 
+        {"_id": 0}
+    ).to_list(100)
+    
+    if not technicians:
+        # Generate technicians if they don't exist
+        technicians = generate_demo_technicians(city)
+        if technicians:
+            await db.technicians.insert_many(technicians)
     
     # Generate weekly jobs
     weekly_data = generate_weekly_jobs(city, jobs_per_day)
@@ -568,13 +583,28 @@ async def generate_weekly_jobs_endpoint(city: str = "chicago", jobs_per_day: int
             await db.jobs.insert_many(day_data["jobs"])
             total_jobs += len(day_data["jobs"])
     
+    # Generate technician availability for the week
+    weekly_availability = generate_technician_availability(city, technicians)
+    
+    total_availability_records = 0
+    for date_str, day_availability in weekly_availability.items():
+        if day_availability["availability"]:
+            await db.technician_availability.insert_many(day_availability["availability"])
+            total_availability_records += len(day_availability["availability"])
+    
     return {
-        "message": f"Generated {total_jobs} jobs for {city} (7 days)",
+        "message": f"Generated weekly data for {city}",
         "total_jobs": total_jobs,
+        "total_technicians": len(technicians),
+        "total_availability_records": total_availability_records,
         "jobs_per_day": jobs_per_day,
         "weekly_summary": [
             {"date": d, "day": data["day_name"], "jobs": data["job_count"]}
             for d, data in weekly_data.items()
+        ],
+        "availability_summary": [
+            {"date": d, "day": data["day_name"], "available_technicians": data["available_count"]}
+            for d, data in weekly_availability.items()
         ]
     }
 
