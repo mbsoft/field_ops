@@ -1,0 +1,41 @@
+.git/
+.github/
+.emergent/
+.vscode/
+.claude/
+
+# Dependencies (reinstalled in Docker)
+frontend/node_modules/
+node_modules/
+venv/
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Build outputs (rebuilt in Docker)
+frontend/build/
+dist/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/terraform.tfvars
+
+# Test artifacts
+test_reports/
+tests/
+backend/tests/
+coverage/
+
+# Environment files
+*.env
+*.env.*
+
+# Misc
+*.md
+*.zip
+*.tar.gz
+.DS_Store
+memory/

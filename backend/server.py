@@ -1,4 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1258,6 +1260,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Health check endpoint for Cloud Run
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Serve React frontend static files (only if build exists)
+FRONTEND_BUILD_DIR = ROOT_DIR.parent / "frontend" / "build"
+if FRONTEND_BUILD_DIR.exists():
+    # Mount static assets (JS, CSS, media)
+    static_dir = FRONTEND_BUILD_DIR / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # SPA catch-all: serve index.html for any non-API, non-static path
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Check if the requested file exists in the build directory
+        file_path = FRONTEND_BUILD_DIR / full_path
+        if full_path and file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        # Otherwise return index.html for client-side routing
+        return FileResponse(str(FRONTEND_BUILD_DIR / "index.html"))
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
